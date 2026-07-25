@@ -11,6 +11,7 @@ The integration creates a virtual Assist Satellite device for each browser, enab
 - [Device Settings](#device-settings)
 - [Satellite State Sync](#satellite-state-sync)
 - [Entity Attributes](#entity-attributes)
+- [Timer Events](#timer-events)
 - [Voice Interaction Events](#voice-interaction-events)
 
 ## Device Settings
@@ -92,6 +93,96 @@ Example template to check for active timers:
 ```yaml
 {{ state_attr('assist_satellite.kitchen_tablet', 'active_timers') | length > 0 }}
 ```
+
+## Timer Events
+
+Home Assistant timers are device-local and expose no state of their own, so a timer started on one satellite normally cannot drive anything else. To close that gap, the integration fires a `voice_satellite_timer` event on the Home Assistant bus every time a timer starts, is updated, is cancelled, or finishes. Use it to send a phone notification when a kitchen timer goes off, announce it on another satellite, flash a light, or anything else.
+
+The event is fired by the integration itself, not by the browser, so it works even when no dashboard is open anywhere.
+
+**Event payload:**
+
+```yaml
+event_type: voice_satellite_timer
+data:
+  entity_id: assist_satellite.kitchen_tablet
+  device_id: "a1b2c3d4..."
+  satellite_name: "Kitchen Tablet"
+  area_id: kitchen
+  area_name: Kitchen
+  event_type: finished
+  timer_id: "01HV..."
+  name: "oven"
+  total_seconds: 1800
+  seconds_left: 0
+  is_active: true
+```
+
+**Field reference:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `entity_id` | string | The satellite entity the timer was set on |
+| `device_id` | string | Device ID of that satellite, or `null` if the entity is not in the device registry |
+| `satellite_name` | string | Configured name of the satellite |
+| `area_id` | string | Area the timer was set in, or `null` |
+| `area_name` | string | Friendly area name, or `null` |
+| `event_type` | string | `started`, `updated`, `cancelled`, or `finished` |
+| `timer_id` | string | Unique timer ID, stable across all events for the same timer |
+| `name` | string | Timer name as spoken (e.g. `oven`), or empty string if unnamed |
+| `total_seconds` | integer | The originally spoken duration. Home Assistant keeps this immutable, so it does not change after "add 5 minutes" - use `seconds_left` for the live value |
+| `seconds_left` | integer | Seconds remaining at the moment the event fired |
+| `is_active` | boolean | `false` when the timer is paused. `updated` fires for add-time, pause, and unpause alike, so this is the only way to tell them apart |
+
+**Example: notify your phone when any timer finishes**
+
+```yaml
+- alias: Timer finished notification
+  trigger:
+    - platform: event
+      event_type: voice_satellite_timer
+      event_data:
+        event_type: finished
+  action:
+    - action: notify.phone
+      data:
+        message: >
+          {{ trigger.event.data.name | default('Timer', true) }} finished
+          on {{ trigger.event.data.satellite_name }}
+```
+
+**Example: announce a finished kitchen timer on every other satellite**
+
+```yaml
+- alias: Broadcast finished timers
+  trigger:
+    - platform: event
+      event_type: voice_satellite_timer
+      event_data:
+        event_type: finished
+  action:
+    - action: assist_satellite.announce
+      target:
+        entity_id:
+          - assist_satellite.living_room_tablet
+          - assist_satellite.bedroom_tablet
+      data:
+        message: "The {{ trigger.event.data.name }} timer is done."
+```
+
+**Example: only react to timers set in a specific area**
+
+```yaml
+trigger:
+  - platform: event
+    event_type: voice_satellite_timer
+condition:
+  - "{{ trigger.event.data.area_id == 'kitchen' }}"
+```
+
+Note that `finished` fires the moment the timer expires. When the satellite defers its on-screen alert slightly, the automation may run a second or two before the tablet starts ringing.
+
+Timer state is also available without events through the `active_timers` entity attribute described above, which is useful for template sensors and dashboard cards.
 
 ## Voice Interaction Events
 

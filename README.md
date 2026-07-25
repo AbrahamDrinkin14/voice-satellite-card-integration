@@ -125,7 +125,7 @@ See the [Configuration reference](docs/configuration.md) for every setting in th
 
 ## Integration
 
-Each satellite is a real `assist_satellite` device in Home Assistant, with a companion `media_player`, per-device configuration entities (pipeline, wake word, TTS output, mute, etc.), and live state sync (`idle` / `listening` / `processing` / `responding`). After every turn the integration fires a `voice_satellite_chat` event carrying the user's transcript, the assistant's full reply, and the tools the LLM invoked, ready to drive automations.
+Each satellite is a real `assist_satellite` device in Home Assistant, with a companion `media_player`, per-device configuration entities (pipeline, wake word, TTS output, mute, etc.), and live state sync (`idle` / `listening` / `processing` / `responding`). After every turn the integration fires a `voice_satellite_chat` event carrying the user's transcript, the assistant's full reply, and the tools the LLM invoked, ready to drive automations. Timers fire a `voice_satellite_timer` event too, so a timer set in the kitchen can notify your phone or announce itself on another satellite.
 
 <p align="center">
    <img src="https://raw.githubusercontent.com/jxlarrea/voice-satellite-card-integration/refs/heads/main/assets/screenshots/integration.png" alt="Integration" width="650"/>
