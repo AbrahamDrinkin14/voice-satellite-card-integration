@@ -99,6 +99,34 @@ const MEDIA_BASE_STYLES = [
   `transition:opacity ${MEDIA_FADE_MS}ms ease`,
 ].join(';');
 
+/** Fill styles for the layers inside a photo wrapper.  The wrapper owns
+ *  the fade and the black backdrop, so the layers only need to fill it. */
+const PHOTO_LAYER_STYLES = [
+  'position:absolute',
+  'top:0;left:0;right:0;bottom:0',
+  'width:100%',
+  'height:100%',
+].join(';');
+
+/** Blurred copy of the photo used to fill the bars a contained photo
+ *  leaves behind.  Scaled up because blur() softens an element's edges
+ *  toward transparent - without it the black backdrop shows through as
+ *  a vignette. */
+const PHOTO_BACKDROP_STYLES = [
+  'object-fit:cover',
+  '-webkit-filter:blur(24px) brightness(0.55)',
+  'filter:blur(24px) brightness(0.55)',
+  'transform:scale(1.2)',
+].join(';');
+
+/** How much of a photo may be cropped for it to fill the screen with
+ *  object-fit:cover.  Past this, cropping starts cutting into subjects,
+ *  so the photo is contained over a blurred backdrop instead.  0.12
+ *  covers the common near-misses (a 3:2 photo on a 16:10 tablet crops
+ *  6%) while rejecting 4:3-on-16:9 (25%) and any portrait/landscape
+ *  mismatch. */
+const PHOTO_COVER_MAX_CROP = 0.12;
+
 export class ScreensaverManager {
   constructor(session) {
     this._session = session;
@@ -913,21 +941,80 @@ export class ScreensaverManager {
       }
       this._contentEl.appendChild(v);
     } else {
-      const img = document.createElement('img');
-      img.src = url;
-      img.style.cssText = baseStyles;
-      img.addEventListener('load', () => this._fadeInAndSweep(img), { once: true });
-      img.addEventListener('error', () => {
-        img.remove();
-        if (this._playlist.length > 1) this._advancePlaylist();
-      }, { once: true });
-      this._contentEl.appendChild(img);
+      this._renderPhoto(url, !!cameraEid);
 
       // Cycle on interval for images (videos cycle on 'ended')
       if (this._playlist.length > 1) {
         this._scheduleNextMediaCycle();
       }
     }
+  }
+
+  /**
+   * Render a still image - a photo from the media browser, or a camera
+   * MJPEG stream - into the content layer.
+   *
+   * Photos rarely match the tablet's aspect ratio, and object-fit:contain
+   * alone leaves black bars around them (#109).  Once the natural size is
+   * known the photo takes one of two paths:
+   *
+   *   - Aspect ratios close enough that filling the screen only shaves a
+   *     sliver: crop to fill with object-fit:cover.
+   *   - Everything else: keep the whole photo contained, but fill the
+   *     bars with a blurred, dimmed copy of the same photo instead of
+   *     black.
+   *
+   * Camera streams get the crop but never the blurred copy: the backdrop
+   * is a second <img> on the same URL, which for MJPEG means opening a
+   * second live stream off the same camera.
+   *
+   * @param {string} url - Resolved media URL
+   * @param {boolean} isCamera - True for MJPEG camera streams
+   */
+  _renderPhoto(url, isCamera) {
+    // The wrapper is what fades in and what the sweep treats as "the
+    // current item", so both layers land and leave together.
+    const wrap = document.createElement('div');
+    wrap.style.cssText = `${MEDIA_BASE_STYLES};overflow:hidden`;
+
+    const img = document.createElement('img');
+    img.src = url;
+    img.style.cssText = `${PHOTO_LAYER_STYLES};object-fit:contain`;
+
+    img.addEventListener('load', () => {
+      const boxW = this._contentEl?.clientWidth || window.innerWidth;
+      const boxH = this._contentEl?.clientHeight || window.innerHeight;
+      const iw = img.naturalWidth;
+      const ih = img.naturalHeight;
+
+      // naturalWidth/Height are 0 for a stream that hasn't decoded a
+      // frame yet and for sizeless SVGs - leave those contained.
+      if (iw > 0 && ih > 0 && boxW > 0 && boxH > 0) {
+        const imgAr = iw / ih;
+        const boxAr = boxW / boxH;
+        const crop = 1 - Math.min(imgAr, boxAr) / Math.max(imgAr, boxAr);
+        if (crop <= PHOTO_COVER_MAX_CROP) {
+          img.style.objectFit = 'cover';
+        } else if (!isCamera) {
+          const backdrop = document.createElement('img');
+          backdrop.src = url;
+          backdrop.style.cssText = `${PHOTO_LAYER_STYLES};${PHOTO_BACKDROP_STYLES}`;
+          // Already in the cache from the foreground load, so it paints
+          // with the photo rather than a frame later.
+          wrap.insertBefore(backdrop, img);
+        }
+      }
+
+      this._fadeInAndSweep(wrap);
+    }, { once: true });
+
+    img.addEventListener('error', () => {
+      wrap.remove();
+      if (this._playlist.length > 1) this._advancePlaylist();
+    }, { once: true });
+
+    wrap.appendChild(img);
+    this._contentEl.appendChild(wrap);
   }
 
   /**
