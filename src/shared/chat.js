@@ -1,5 +1,7 @@
 /** Chat rendering state and incremental streaming updates. */
 
+import { PacedScroller } from './paced-scroll.js';
+
 const FADE_GROUPS = 4;
 const CHARS_PER_GROUP = 2;
 const FADE_LEN = FADE_GROUPS * CHARS_PER_GROUP; // 8 chars total
@@ -21,6 +23,11 @@ export class ChatManager {
     // RAF coalescing - multiple rapid stream chunks produce one DOM write per frame
     this._pendingText = null;
     this._rafId = null;
+
+    // Reading-paced scroll for a response taller than its bubble. Holds its
+    // own element reference because intent-end nulls _streamEl while TTS
+    // (and the scroll it paces) is still running.
+    this._scroller = new PacedScroller(() => this._card.tts?.playbackProgress || null);
   }
 
   get streamEl() { return this._streamEl; }
@@ -47,10 +54,13 @@ export class ChatManager {
   showResponse(text) {
     if (this._streamEl) {
       this._card.ui.updateChatText(this._streamEl, text);
-      this._autoScroll();
     } else {
       this.addAssistant(text);
     }
+    // The text is final - hand the scroll its pacing clock (the TTS about
+    // to play, or the word-count estimate if none does).
+    this._scroller.finalize(text);
+    this._card.ui.finalizeTranscriptScroll?.(text);
   }
 
   updateResponse(text) {
@@ -93,12 +103,16 @@ export class ChatManager {
         this._thinkingEl.classList.add('idle');
         this._thinkingEl = null;
       }
+      // No bubble this turn - drop the previous turn's, so the paced
+      // scroll doesn't run against a stale element.
+      this._scroller.reset();
       return;
     }
     // Remove animated dots if no tool call claimed them.
     // Frozen dots (from tool calls) are safe - showToolCall already nulled _thinkingEl.
     this.removeThinking();
     this._streamEl = this._card.ui.addChatMessage(text, 'assistant');
+    this._scroller.begin(this._streamEl);
     this._fadeSpans = null;
     this._solidNode = null;
     this._fadeContainer = null;
@@ -146,6 +160,7 @@ export class ChatManager {
   clear() {
     this.removeThinking();
     this._card.ui.clearChat();
+    this._scroller.reset();
     this._streamEl = null;
     this._streamedResponse = '';
     this._fadeSpans = null;
@@ -198,12 +213,15 @@ export class ChatManager {
     this._autoScroll();
   }
 
-  /** Scroll the stream element and its transcript container to the bottom. */
+  /**
+   * Advance the reading-paced scroll for the response bubble and, in tall
+   * mini mode, its transcript container. While the text is still streaming
+   * and no TTS is playing yet this deliberately holds position: speech
+   * starts at the top of the response, so chasing the tail would scroll
+   * past what is about to be spoken.
+   */
   _autoScroll() {
-    const el = this._streamEl;
-    if (el && el.scrollHeight > el.clientHeight) {
-      el.scrollTop = el.scrollHeight;
-    }
+    this._scroller.nudge();
     // Also scroll the transcript container (tall mini mode)
     this._card.ui._scrollTranscriptToEnd?.();
   }

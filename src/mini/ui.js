@@ -9,6 +9,7 @@
 import { formatTime } from '../shared/format.js';
 import { getSwitchState } from '../shared/satellite-state.js';
 import { attachDoubleTap } from '../shared/double-tap.js';
+import { PacedScroller, estimateSpeechDuration } from '../shared/paced-scroll.js';
 import { t } from '../i18n/index.js';
 
 const MINI_CSS = `
@@ -375,11 +376,10 @@ export class MiniUIManager {
     this._marqueeLastTs = 0;
     this._marqueeSpeed = 0;
     this._ttsEstimatedDuration = 0;
-    // Vertical scroll (tall mode)
-    this._vScrollRaf = null;
-    this._vScrollPos = 0;
-    this._vScrollSpeed = 0;
-    this._vScrollLastTs = 0;
+    // Vertical scroll (tall mode) - reading-paced against the TTS clock
+    this._transcriptScroller = new PacedScroller(
+      () => this._card.tts?.playbackProgress || null,
+    );
   }
 
   get element() {
@@ -599,21 +599,31 @@ export class MiniUIManager {
     el.className = `vs-mini-msg ${type}`;
     el.textContent = text;
     this._transcriptEl?.appendChild(el);
-    this._scrollTranscriptToEnd();
+    // A brand new (still empty) bubble: jump so its first line is on
+    // screen. Paced scrolling takes over as the text fills in.
+    this._transcriptScroller.begin(this._transcriptEl);
+    this._jumpTranscriptToEnd();
     return el;
   }
 
   updateChatText(el, text) {
     if (!el) return;
     el.textContent = text;
-    // Estimate TTS duration: word count + extra time for numbers (expanded pronunciation)
-    if (text) {
-      const words = text.trim().split(/\s+/).length;
-      const nums = (text.match(/\d[\d,.]*%?/g) || []).length;
-      this._ttsEstimatedDuration = Math.max(3, (words / 2.8) + (nums * 0.7));
-    }
+    if (text) this._ttsEstimatedDuration = estimateSpeechDuration(text);
     if (this._card.config.mini_mode === 'compact') this._refreshCompactMarquee();
     else this._scrollTranscriptToEnd();
+  }
+
+  /**
+   * The response text is complete - give the transcript scroll its pacing
+   * clock. Called by ChatManager; the compact marquee paces itself.
+   * @param {string} text
+   */
+  finalizeTranscriptScroll(text) {
+    this._ttsEstimatedDuration = estimateSpeechDuration(text);
+    if (this._card.config.mini_mode !== 'compact') {
+      this._transcriptScroller.finalize(text);
+    }
   }
 
   // Thinking indicator - no-op in mini mode (dots/tool names are full-card only)
@@ -645,9 +655,7 @@ export class MiniUIManager {
     this._ttsEstimatedDuration = 0;
     if (this._transcriptEl) this._transcriptEl.textContent = '';
     this._stopMarquee();
-    this._stopVScroll();
-    this._vScrollPos = 0;
-    this._vScrollSpeed = 0;
+    this._transcriptScroller.reset();
   }
 
   setAnnouncementMode(on) {
@@ -796,80 +804,23 @@ export class MiniUIManager {
     this._refreshCompactMarquee();
   }
 
+  /**
+   * Advance the paced transcript scroll (tall mode). Holds position while
+   * the response is still streaming and no TTS is playing - speech starts
+   * at the top of the text, so chasing the tail scrolls past what is about
+   * to be spoken.
+   */
   _scrollTranscriptToEnd() {
-    if (!this._transcriptEl) return;
+    if (!this._transcriptEl || this._card.config.mini_mode === 'compact') return;
+    this._transcriptScroller.nudge();
+  }
+
+  /** Jump straight to the bottom - used when a new message is appended. */
+  _jumpTranscriptToEnd() {
     const el = this._transcriptEl;
+    if (!el || this._card.config.mini_mode === 'compact') return;
     const max = el.scrollHeight - el.clientHeight;
-    if (max <= 0) return;
-
-    // If TTS is playing or expected, use synced vertical scroll
-    if (this._card.tts?.isPlaying || this._ttsEstimatedDuration > 0) {
-      this._startVScroll();
-      return;
-    }
-
-    // Otherwise jump immediately
-    el.scrollTop = max;
-  }
-
-  _startVScroll() {
-    if (this._vScrollRaf) return;
-    this._vScrollLastTs = 0;
-    this._vScrollRaf = requestAnimationFrame((ts) => this._vScrollTick(ts));
-  }
-
-  _stopVScroll() {
-    if (this._vScrollRaf) {
-      cancelAnimationFrame(this._vScrollRaf);
-      this._vScrollRaf = null;
-    }
-    this._vScrollLastTs = 0;
-  }
-
-  _vScrollTick(ts) {
-    const el = this._transcriptEl;
-    if (!el || this._card.config.mini_mode === 'compact') {
-      this._stopVScroll();
-      return;
-    }
-
-    const max = el.scrollHeight - el.clientHeight;
-    if (max <= 0) {
-      this._stopVScroll();
-      return;
-    }
-
-    if (!this._vScrollLastTs) this._vScrollLastTs = ts;
-    const dt = ts - this._vScrollLastTs;
-    this._vScrollLastTs = ts;
-
-    if (!this._vScrollSpeed) this._vScrollSpeed = 30;
-
-    const ttsAudio = this._card.tts?.currentAudio;
-    const realDuration = ttsAudio && isFinite(ttsAudio.duration) && ttsAudio.duration > 0
-      ? ttsAudio.duration : 0;
-    const effectiveDuration = realDuration || this._ttsEstimatedDuration;
-
-    if (effectiveDuration > 0 && ttsAudio && ttsAudio.currentTime >= 0) {
-      const remaining = effectiveDuration - ttsAudio.currentTime;
-      const pxLeft = max - this._vScrollPos;
-      if (remaining > 0.1 && pxLeft > 0) {
-        const target = Math.max(10, Math.min(200, pxLeft / remaining));
-        this._vScrollSpeed += (target - this._vScrollSpeed) * 0.12;
-      }
-    }
-
-    this._vScrollPos += this._vScrollSpeed * dt / 1000;
-
-    if (this._vScrollPos >= max) {
-      this._vScrollPos = max;
-      el.scrollTop = max;
-      this._stopVScroll();
-      return;
-    }
-
-    el.scrollTop = this._vScrollPos;
-    this._vScrollRaf = requestAnimationFrame((nextTs) => this._vScrollTick(nextTs));
+    if (max > 0) el.scrollTop = max;
   }
 
   _normalizeCompactSeparators() {
@@ -955,20 +906,19 @@ export class MiniUIManager {
       // Start at default speed, smoothly steer toward TTS-synced target
       if (!this._marqueeSpeed) this._marqueeSpeed = 42;
 
-      const ttsAudio = this._card.tts?.currentAudio;
-      const realDuration = ttsAudio && isFinite(ttsAudio.duration) && ttsAudio.duration > 0
-        ? ttsAudio.duration : 0;
-      // Use real duration if available, otherwise fall back to text-based estimate
-      const effectiveDuration = realDuration || this._ttsEstimatedDuration;
+      // Real playback clock when one is available (browser element, or the
+      // server-measured duration for native/remote), text estimate before
+      // playback starts.
+      const progress = this._card.tts?.playbackProgress;
+      const remaining = progress
+        ? progress.duration - progress.elapsed
+        : this._ttsEstimatedDuration;
 
-      if (effectiveDuration > 0 && ttsAudio && ttsAudio.currentTime >= 0) {
-        const remaining = effectiveDuration - ttsAudio.currentTime;
-        const pixelsLeft = max - this._marqueePos;
-        if (remaining > 0.1 && pixelsLeft > 0) {
-          const target = Math.max(20, Math.min(120, pixelsLeft / remaining));
-          // Steer toward the target each frame (12% blend ≈ 95% converged in 250ms)
-          this._marqueeSpeed += (target - this._marqueeSpeed) * 0.12;
-        }
+      const pixelsLeft = max - this._marqueePos;
+      if (remaining > 0.1 && pixelsLeft > 0) {
+        const target = Math.max(20, Math.min(120, pixelsLeft / remaining));
+        // Steer toward the target each frame (12% blend ≈ 95% converged in 250ms)
+        this._marqueeSpeed += (target - this._marqueeSpeed) * 0.12;
       }
 
       this._marqueePos += this._marqueeSpeed * dt / 1000;

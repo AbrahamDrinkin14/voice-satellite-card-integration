@@ -87,6 +87,35 @@ export class TtsManager {
   get isPlaying() { return this._playing; }
   get currentAudio() { return this._playing ? this._audioEl : null; }
 
+  /**
+   * Playback position for UI pacing (reading-paced transcript scroll).
+   * Browser playback reads the element directly. Native (Kiosk app) and
+   * remote (media_player) playback never touch the element, so they pace
+   * off the server-measured duration from the tts-audio-duration event
+   * plus the wall clock since play() - accurate to the playback-start
+   * latency, which the scroll easing absorbs.
+   * @returns {{elapsed: number, duration: number}|null} seconds, or null
+   *   when nothing is playing or no clock is available yet.
+   */
+  get playbackProgress() {
+    if (!this._playing) return null;
+
+    if (!this._remoteTarget && !this._nativeSound) {
+      const duration = Number(this._audioEl?.duration);
+      const elapsed = Number(this._audioEl?.currentTime);
+      // Streamed TTS reports Infinity until the whole body has arrived.
+      if (Number.isFinite(duration) && duration > 0 && Number.isFinite(elapsed)) {
+        return { elapsed, duration };
+      }
+    }
+
+    if (!this._serverDuration || !this._playStartTs) return null;
+    return {
+      elapsed: Math.max(0, (performance.now() - this._playStartTs) / 1000),
+      duration: this._serverDuration,
+    };
+  }
+
   get ttsUrl() { return this._ttsUrl; }
   set ttsUrl(url) { this._ttsUrl = url; }
 
