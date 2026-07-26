@@ -16,6 +16,11 @@
  *     persistent?: boolean,    // stays until dismissed/replaced, overriding
  *                              // the severity's auto-dismiss timeout (used
  *                              // for ongoing states like "microphone muted")
+ *     suppressAfterDismiss?: boolean, // once the user closes it, this id
+ *                              // stays silent for the rest of the page load.
+ *                              // For recurring state toasts the user has
+ *                              // already acknowledged (mute is toggled all
+ *                              // day on some dashboards).
  *     action?: {
  *       label: string,
  *       type: 'diagnostics' | 'retry' | 'custom',
@@ -74,6 +79,9 @@ export class ToastManager {
     this._current = null;
     this._timer = null;
     this._subscribers = new Set();
+    // Ids the user closed by hand that asked to stay closed. Lives on the
+    // session, so it clears on page reload and nowhere else.
+    this._suppressed = new Set();
   }
 
   get current() { return this._current; }
@@ -87,6 +95,8 @@ export class ToastManager {
       this._log.error('toast', 'show() requires id, severity, and category', toast);
       return;
     }
+    // Closed by the user earlier this page load and flagged to stay closed.
+    if (this._suppressed.has(toast.id)) return;
     // Same id currently visible: refresh timestamp, keep the UI stable.
     if (this._current?.id === toast.id) {
       this._current = { ...this._current, ...toast, timestamp: Date.now() };
@@ -103,10 +113,18 @@ export class ToastManager {
   /**
    * Dismiss a specific toast by id, or the current one if no id passed.
    * @param {string} [id]
+   * @param {boolean} [byUser] - true when the user hit the close button. A
+   *   toast carrying suppressAfterDismiss then stays silent until reload;
+   *   programmatic dismissals (the state it reports went away) do not
+   *   suppress anything, so it can be shown again.
    */
-  dismiss(id) {
+  dismiss(id, byUser) {
     if (!this._current) return;
     if (id && this._current.id !== id) return;
+    if (byUser && this._current.suppressAfterDismiss) {
+      this._suppressed.add(this._current.id);
+      this._log.log('toast', `${this._current.id}: dismissed by user - silenced until reload`);
+    }
     this._clearTimer();
     this._current = null;
     this._notify();

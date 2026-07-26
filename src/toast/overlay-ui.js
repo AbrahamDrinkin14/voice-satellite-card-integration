@@ -101,7 +101,7 @@ function _render(host, toast, session) {
   close.className = 'vs-toast-close';
   close.setAttribute('aria-label', 'Dismiss');
   close.innerHTML = '&times;';
-  close.addEventListener('click', () => session.toast.dismiss(toast.id));
+  close.addEventListener('click', () => session.toast.dismiss(toast.id, true));
   el.appendChild(close);
 
   host.appendChild(el);
