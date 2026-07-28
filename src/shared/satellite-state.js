@@ -4,7 +4,58 @@
  * Read satellite entity attributes and sibling switch states
  * from the HA frontend cache. These are pure lookups with no
  * side-effects, shared across all managers.
+ *
+ * Sibling lookups go through a per-device index instead of walking
+ * hass.entities. Every helper here answers "which entity on the
+ * satellite's device has this translation_key?", and each used to
+ * answer it with a full registry walk per call. updateHass() asks a
+ * dozen such questions on every state batch, and on a ~5000-entity
+ * instance that added up to 200-300ms of main-thread work per tick,
+ * felt as UI stutter at exactly the interaction transitions (wake,
+ * chime end, TTS start) because those are when state batches arrive.
  */
+
+/**
+ * Sibling index, keyed on the hass.entities object itself.
+ *
+ * hass.entities is the frontend's entity-registry cache: state updates
+ * replace hass but keep the same hass.entities reference, which only
+ * changes when the registry itself changes. Keying the WeakMap on it
+ * means no invalidation logic at all: a registry change simply misses
+ * and rebuilds (one walk), and the old index is garbage.
+ */
+const _siblingIndex = new WeakMap();
+
+const _noSiblings = [];
+
+/**
+ * All of the integration's own entities on the satellite's device, as
+ * [entityId, registryEntry] pairs in registry order. Registry order is
+ * preserved so first-match semantics are identical to the full walks
+ * these lookups replaced.
+ *
+ * @param {object} hass - HA frontend object
+ * @param {string} satelliteId - Satellite entity ID
+ * @returns {Array<[string, object]>} Sibling entries, empty if unknown
+ */
+export function getSiblingEntities(hass, satelliteId) {
+  if (!hass?.entities || !satelliteId) return _noSiblings;
+  const satellite = hass.entities[satelliteId];
+  if (!satellite?.device_id) return _noSiblings;
+  let byDevice = _siblingIndex.get(hass.entities);
+  if (!byDevice) {
+    byDevice = new Map();
+    for (const eid in hass.entities) {
+      const entry = hass.entities[eid];
+      if (entry?.platform !== 'voice_satellite' || !entry.device_id) continue;
+      let list = byDevice.get(entry.device_id);
+      if (!list) byDevice.set(entry.device_id, (list = []));
+      list.push([eid, entry]);
+    }
+    _siblingIndex.set(hass.entities, byDevice);
+  }
+  return byDevice.get(satellite.device_id) || _noSiblings;
+}
 
 /**
  * Read an attribute from the satellite entity's HA state.
@@ -27,13 +78,8 @@ export function getSatelliteAttr(hass, entityId, name) {
  * @returns {string|undefined} The entity_id attribute value, or undefined if not found
  */
 export function getSelectEntityId(hass, satelliteId, translationKey) {
-  if (!hass?.entities || !satelliteId) return undefined;
-  const satellite = hass.entities[satelliteId];
-  if (!satellite?.device_id) return undefined;
-  for (const [eid, entry] of Object.entries(hass.entities)) {
-    if (entry.device_id === satellite.device_id &&
-        entry.platform === 'voice_satellite' &&
-        entry.translation_key === translationKey) {
+  for (const [eid, entry] of getSiblingEntities(hass, satelliteId)) {
+    if (entry.translation_key === translationKey) {
       return hass.states[eid]?.attributes?.entity_id || '';
     }
   }
@@ -49,13 +95,8 @@ export function getSelectEntityId(hass, satelliteId, translationKey) {
  * @returns {number} The numeric value, or defaultValue if not found
  */
 export function getNumberState(hass, satelliteId, translationKey, defaultValue) {
-  if (!hass?.entities || !satelliteId) return defaultValue;
-  const satellite = hass.entities[satelliteId];
-  if (!satellite?.device_id) return defaultValue;
-  for (const [eid, entry] of Object.entries(hass.entities)) {
-    if (entry.device_id === satellite.device_id &&
-        entry.platform === 'voice_satellite' &&
-        entry.translation_key === translationKey) {
+  for (const [eid, entry] of getSiblingEntities(hass, satelliteId)) {
+    if (entry.translation_key === translationKey) {
       const val = parseFloat(hass.states[eid]?.state);
       if (!isNaN(val)) return val;
       break;
@@ -81,13 +122,8 @@ export function getNumberState(hass, satelliteId, translationKey, defaultValue) 
  * @returns {string|undefined} The select state value, or defaultValue
  */
 export function getSelectState(hass, satelliteId, translationKey, defaultValue) {
-  if (!hass?.entities || !satelliteId) return defaultValue;
-  const satellite = hass.entities[satelliteId];
-  if (!satellite?.device_id) return defaultValue;
-  for (const [eid, entry] of Object.entries(hass.entities)) {
-    if (entry.device_id === satellite.device_id &&
-        entry.platform === 'voice_satellite' &&
-        entry.translation_key === translationKey) {
+  for (const [eid, entry] of getSiblingEntities(hass, satelliteId)) {
+    if (entry.translation_key === translationKey) {
       const val = hass.states[eid]?.state;
       if (val && val !== 'unknown' && val !== 'unavailable') return val;
       break;
@@ -107,13 +143,8 @@ export function getSelectState(hass, satelliteId, translationKey, defaultValue) 
  * @returns {string[]} The options array, or empty array if not found
  */
 export function getSelectOptions(hass, satelliteId, translationKey) {
-  if (!hass?.entities || !satelliteId) return [];
-  const satellite = hass.entities[satelliteId];
-  if (!satellite?.device_id) return [];
-  for (const [eid, entry] of Object.entries(hass.entities)) {
-    if (entry.device_id === satellite.device_id &&
-        entry.platform === 'voice_satellite' &&
-        entry.translation_key === translationKey) {
+  for (const [eid, entry] of getSiblingEntities(hass, satelliteId)) {
+    if (entry.translation_key === translationKey) {
       const options = hass.states[eid]?.attributes?.options;
       return Array.isArray(options) ? options : [];
     }
@@ -135,13 +166,8 @@ export function getSelectOptions(hass, satelliteId, translationKey) {
  * @returns {*} The attribute value or undefined.
  */
 export function getSelectAttribute(hass, satelliteId, translationKey, attrName) {
-  if (!hass?.entities || !satelliteId) return undefined;
-  const satellite = hass.entities[satelliteId];
-  if (!satellite?.device_id) return undefined;
-  for (const [eid, entry] of Object.entries(hass.entities)) {
-    if (entry.device_id === satellite.device_id &&
-        entry.platform === 'voice_satellite' &&
-        entry.translation_key === translationKey) {
+  for (const [eid, entry] of getSiblingEntities(hass, satelliteId)) {
+    if (entry.translation_key === translationKey) {
       return hass.states[eid]?.attributes?.[attrName];
     }
   }
@@ -186,13 +212,8 @@ export function getSwitchState(hass, satelliteId, translationKey) {
  * @returns {string|undefined} The switch entity_id, or undefined if not found
  */
 export function getSwitchEntityId(hass, satelliteId, translationKey) {
-  if (!hass?.entities || !satelliteId) return undefined;
-  const satellite = hass.entities[satelliteId];
-  if (!satellite?.device_id) return undefined;
-  for (const [eid, entry] of Object.entries(hass.entities)) {
+  for (const [eid, entry] of getSiblingEntities(hass, satelliteId)) {
     if (eid.startsWith('switch.') &&
-        entry.device_id === satellite.device_id &&
-        entry.platform === 'voice_satellite' &&
         entry.translation_key === translationKey) {
       return eid;
     }

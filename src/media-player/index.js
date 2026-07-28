@@ -18,6 +18,7 @@ import { buildMediaUrl, playMediaUrl } from '../audio/media-playback.js';
 import { attachDoubleTap } from '../shared/double-tap.js';
 import { cameraSupportsWebrtc, attachCameraWebrtc } from '../shared/camera-webrtc.js';
 import { Timing } from '../constants.js';
+import { getSiblingEntities } from '../shared/satellite-state.js';
 import * as kiosk from '../kiosk/index.js';
 
 let hlsLoaderPromise = null;
@@ -1031,10 +1032,10 @@ export class MediaPlayerManager {
     const satellite = hass.entities[satelliteId];
     if (!satellite?.device_id) return null;
 
-    for (const [eid, entry] of Object.entries(hass.entities)) {
-      if (entry.device_id === satellite.device_id &&
-          entry.platform === 'voice_satellite' &&
-          eid.startsWith('media_player.')) {
+    // Sibling index, not a registry walk: this runs on every playback
+    // state report, and the walk was ~20ms on a large instance.
+    for (const [eid] of getSiblingEntities(hass, satelliteId)) {
+      if (eid.startsWith('media_player.')) {
         return eid;
       }
     }
