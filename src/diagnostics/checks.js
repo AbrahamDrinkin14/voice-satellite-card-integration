@@ -11,9 +11,31 @@
 
 import { getSelectState } from '../shared/satellite-state.js';
 import * as kiosk from '../kiosk/index.js';
+import { isNativeWakeActive } from '../wake-word/native-handoff.js';
 
 const WAKE_WORD_DETECTION_OWW = 'On Device (openWakeWord)';
 const WAKE_WORD_DETECTION_VWW = 'On Device (vsWakeWord)';
+
+/**
+ * Whether Kiosk Satellite's native wake-word handoff owns detection right
+ * now. When it does, the in-browser engine never starts, so the WebGPU
+ * checks below have nothing to warn about: inference runs in native code
+ * on the CPU. Keyed off the handoff actually being engaged rather than
+ * the platform, because the app declines engines it has no native runner
+ * for (e.g. an older build without openWakeWord support), in which case
+ * detection stays in the browser and WebGPU genuinely is required.
+ *
+ * Two signals: the handoff flag covers this page's session; the app's own
+ * state covers a handoff engaged before this page finished starting up
+ * (diagnostics are often run from the panel moments after a reload, ahead
+ * of the session).
+ */
+async function nativeWakeHandoffOwnsDetection() {
+  if (kiosk.platform() !== 'kiosksatellite') return false;
+  if (isNativeWakeActive()) return true;
+  const st = await kiosk.getNativeWakeWordState();
+  return st?.listening === true;
+}
 
 /**
  * Probe WebGPU availability for diagnostics checks. Returns a normalized
@@ -373,6 +395,12 @@ export const CLIENT_CHECKS = [
       if (mode !== WAKE_WORD_DETECTION_OWW) {
         return { status: 'skip', detail: `This check only applies when wake word detection is "${WAKE_WORD_DETECTION_OWW}". Active mode is "${mode || 'unknown'}".` };
       }
+      if (await nativeWakeHandoffOwnsDetection()) {
+        return {
+          status: 'pass',
+          detail: 'Kiosk Satellite runs openWakeWord inference natively on the device CPU. The in-browser WebGPU engine is not used, so WebGPU is not required.',
+        };
+      }
       const probe = await probeWebGpu();
       if (probe.ok) return { status: 'pass', detail: `WebGPU adapter present (${probe.desc}).` };
       if (probe.reason === 'missing') {
@@ -411,6 +439,12 @@ export const CLIENT_CHECKS = [
       const mode = getSelectState(hass, entityId, 'wake_word_detection', '');
       if (mode !== WAKE_WORD_DETECTION_VWW) {
         return { status: 'skip', detail: `This check only applies when wake word detection is "${WAKE_WORD_DETECTION_VWW}". Active mode is "${mode || 'unknown'}".` };
+      }
+      if (await nativeWakeHandoffOwnsDetection()) {
+        return {
+          status: 'pass',
+          detail: 'Kiosk Satellite runs vsWakeWord inference natively on the device CPU. The in-browser WebGPU engine is not used, so WebGPU is not required.',
+        };
       }
       const probe = await probeWebGpu();
       if (probe.ok) {
