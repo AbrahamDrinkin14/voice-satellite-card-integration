@@ -26,6 +26,16 @@
   initial-value: 0deg;
 }
 
+/* Registered as a typed property so WebKit re-resolves styles that read it
+   through var() inside calc() and filter values, including on pseudo-elements.
+   Without registration, Safari/iOS webviews leave the reactive glow stuck at
+   its initial value while the analyser rewrites the variable each frame. */
+@property --vs-audio-level {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
 /* Font - Inter (closest open-source match to SF Pro) */
 #voice-satellite-ui {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;

@@ -26,6 +26,16 @@
   initial-value: 0%;
 }
 
+/* Registered as a typed property so WebKit re-resolves styles that read it
+   through var() inside calc() and filter values, including on pseudo-elements.
+   Without registration, Safari/iOS webviews leave the reactive glow stuck at
+   its initial value while the analyser rewrites the variable each frame. */
+@property --vs-audio-level {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
 /* ─── Theme tokens ─────────────────────────────────────────────── */
 
 #voice-satellite-ui {
@@ -190,17 +200,34 @@
 #voice-satellite-ui .vs-rainbow-bar.reactive::after {
   content: '';
   position: absolute;
-  inset: 0;
+  /* The box is padded well past the bar because WebKit clips filter
+     output at the element's box: any glow meant to spread beyond the bar
+     must still be painted inside this element. The bar image is a 12px
+     strip centered in the padded box (repeat-x, not a box-filling
+     background), so the blur has room to spread in every direction, and
+     the mask fades the strip's ends before they can reach the clip edge. */
+  top: -36px;
+  bottom: -36px;
+  left: -6%;
+  right: -6%;
   background: linear-gradient(90deg, #4285F4, #4285F4 25%, #EA4335 25%, #EA4335 50%, #FBBC05 50%, #FBBC05 75%, #34A853 75%, #34A853);
-  background-size: 200% 100%;
+  background-size: 200% 8px;
   background-position: var(--vs-gp) 50%;
-  border-radius: 50%;
+  background-repeat: repeat-x;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
   filter: blur(calc(6px + 12px * var(--vs-audio-level, 0)));
   opacity: calc(var(--vs-audio-level, 0) * 2.5);
-  transform: scale(1.15, 2);
   z-index: -1;
   pointer-events: none;
-  will-change: opacity, transform;
+  will-change: opacity;
+}
+
+/* Blink spreads blur further than WebKit at the same radius, washing the
+   glow out into a larger, dimmer halo. Tighten the curve outside WebKit so
+   both engines render the same localized glow. */
+#voice-satellite-ui:not(.vs-webkit) .vs-rainbow-bar.reactive::after {
+  filter: blur(calc(4px + 8px * var(--vs-audio-level, 0)));
 }
 
 #voice-satellite-ui .vs-rainbow-bar.reactive.listening {

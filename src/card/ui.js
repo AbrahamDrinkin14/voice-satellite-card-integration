@@ -121,11 +121,28 @@ export class UIManager {
 
   // ─── Global UI Lifecycle ──────────────────────────────────────────
 
+  /**
+   * Mark the rendering engine on the UI root so skin CSS can compensate
+   * for engine differences. Today's only consumer: WebKit spreads filter
+   * blur less than Blink at the same radius, so the reactive-glow skins
+   * tighten their blur curves outside WebKit to keep the glow visually
+   * identical across engines. Every iOS browser is WKWebView regardless of
+   * its brand, hence the device check alongside the UA check.
+   */
+  _applyEngineClass() {
+    const ua = navigator.userAgent || '';
+    const isIosDevice = /iPhone|iPad|iPod/.test(ua)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isSafari = /AppleWebKit/.test(ua) && !/Chrome|Chromium|Android/.test(ua);
+    this._globalUI.classList.toggle('vs-webkit', isIosDevice || isSafari);
+  }
+
   ensureGlobalUI() {
     const existing = document.getElementById('voice-satellite-ui');
 
     if (existing) {
       this._globalUI = existing;
+      this._applyEngineClass();
       this.applyStyles();
       this._flushPendingStartButton();
       return;
@@ -146,6 +163,7 @@ export class UIManager {
     document.body.appendChild(ui);
     this._globalUI = ui;
 
+    this._applyEngineClass();
     this._injectSkinCSS();
     this._applyCustomCSS();
     this._applyTextScale();
