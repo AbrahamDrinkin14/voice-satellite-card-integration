@@ -492,10 +492,16 @@ export class AnalyserManager {
 
     let isMic = false;
     let meanAbs;
+    let isNativeLevel = false;
     if (this._external) {
       // Native playback pushes measured levels; the WebKit fallback reads
       // the decoded envelope at the element's playhead instead.
-      meanAbs = this._decodedEnvelope ? this._decodedLevelNow() : this._externalLevel;
+      if (this._decodedEnvelope || this._decodedEl) {
+        meanAbs = this._decodedLevelNow();
+      } else {
+        meanAbs = this._externalLevel;
+        isNativeLevel = true;
+      }
     } else {
       // Use time-domain waveform amplitude for a simple level meter. This is
       // cheaper than FFT/frequency analysis and visually sufficient here.
@@ -516,7 +522,7 @@ export class AnalyserManager {
       }
     }
 
-    const level = Math.min(1, Math.round(this._mapVisualLevel(meanAbs, isMic) * 20) / 20);
+    const level = Math.min(1, Math.round(this._mapVisualLevel(meanAbs, isMic, isNativeLevel) * 20) / 20);
 
     // During the post-unmute warmup window, keep the analyser running
     // (so smoothing converges on live audio) but suppress writes to
@@ -570,10 +576,20 @@ export class AnalyserManager {
     return Math.max(17, raw);
   }
 
-  _mapVisualLevel(meanAbs, isMic) {
+  _mapVisualLevel(meanAbs, isMic, isNativeLevel = false) {
     // This is visual-only remapping for reactive skins. It does not affect
     // wake word, VAD, or any uploaded audio — only the shared CSS level.
-    //
+
+    // Kiosk Satellite streams levels it measured from the decoded source
+    // at full scale, before its player applies the volume, so they run
+    // hot compared to what the analyser reads off an element. The
+    // standard playback gain of 5 clips everything above 0.2 to a maxed
+    // bar, leaving TTS pinned at full size for whole utterances. Use a
+    // gentler gain with a near-linear curve so speech keeps its dynamics.
+    if (isNativeLevel) {
+      return Math.min(1, meanAbs * 2.2);
+    }
+
     // Mic input tends to sit much lower than local/remote playback, so give
     // it a slightly stronger lift plus a small visible floor once real input
     // is present. The nonlinear curve keeps quiet speech readable without
