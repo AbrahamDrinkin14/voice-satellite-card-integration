@@ -10,8 +10,30 @@
  * the audio analyser routes through to destination for playback.
  * _activeAnalyser points to whichever node _tick() should read from.
  *
+ * On WebKit hosts (Safari, and every iOS browser/webview, since they are
+ * all WKWebView underneath) the media-element tap is unreliable: the
+ * element keeps playing audibly while the MediaElementSourceNode feeds
+ * the analyser silence, so the bar never moves during playback. There,
+ * attachAudio() falls back to fetching and decoding the audio itself,
+ * precomputing an amplitude envelope, and driving the bar through the
+ * external-level path keyed to the element's currentTime.
+ *
  * Skins opt in via `reactiveBar: true` in their definition.
  */
+
+/**
+ * True where createMediaElementSource cannot be trusted to deliver samples
+ * to an AnalyserNode. Chrome on iOS reports CriOS but runs WKWebView, so
+ * the test is "WebKit and not a real Chromium/Android", plus the iPadOS
+ * desktop-UA case where Safari masquerades as macOS.
+ */
+function mediaElementTapUnreliable() {
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  const isIosDevice = /iPhone|iPad|iPod/.test(ua)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isSafari = /AppleWebKit/.test(ua) && !/Chrome|Chromium|Android/.test(ua);
+  return isIosDevice || isSafari;
+}
 
 export class AnalyserManager {
   constructor(card) {
@@ -42,6 +64,13 @@ export class AnalyserManager {
     this._externalLevel = 0;
     this._analyserBuffers = new WeakMap();
     this._analyserFrequencyBuffers = new WeakMap();
+
+    // Decoded-envelope fallback (WebKit): _tick() reads the precomputed
+    // envelope at the element's currentTime instead of _externalLevel.
+    this._decodedEl = null;
+    this._decodedEnvelope = null;
+    this._envelopeCache = new Map();
+    this._decodeContext = null;
 
     this._rafId = null;
     this._barEl = null;
@@ -107,6 +136,15 @@ export class AnalyserManager {
    */
   attachAudio(audioEl, audioContext) {
     if (!audioEl || !audioContext) return;
+
+    // WebKit: don't reroute the element at all - the tap reads silence
+    // there (and rerouting risks degrading playback). Compute levels from
+    // the decoded bytes instead.
+    if (mediaElementTapUnreliable()) {
+      this._attachDecodedLevels(audioEl);
+      return;
+    }
+
     this._detachAudio();
 
     try {
@@ -181,6 +219,8 @@ export class AnalyserManager {
     this._detachAudio();
     this._external = true;
     this._externalLevel = 0;
+    this._decodedEl = null;
+    this._decodedEnvelope = null;
     this._log.log('analyser', 'Active -> external (native playback levels)');
     if (this._barEl && !this._rafId) {
       this._tick();
@@ -197,11 +237,116 @@ export class AnalyserManager {
     if (!this._external) return;
     this._external = false;
     this._externalLevel = 0;
+    this._decodedEl = null;
+    this._decodedEnvelope = null;
     if (this._barEl) {
       this._lastLevel = 0;
       this._barEl.style.setProperty('--vs-audio-level', '0');
     }
     this._log.log('analyser', 'Active -> none (external detached)');
+  }
+
+  /**
+   * WebKit fallback for attachAudio: enter external mode immediately (so
+   * the tick loop runs and the bar is live the moment data lands), then
+   * fetch and decode the element's source and precompute an amplitude
+   * envelope. _tick() reads the envelope at the element's currentTime.
+   *
+   * The fetch hits the same URL the element is already playing, so for
+   * local assets (chimes) it comes from cache; TTS costs one extra
+   * request to a file HA just generated. If the fetch or decode fails
+   * the bar simply stays dark, which is what WebKit showed before.
+   */
+  async _attachDecodedLevels(audioEl) {
+    const url = audioEl.currentSrc || audioEl.src;
+    if (!url) return;
+    this._detachAudio();
+    this._external = true;
+    this._externalLevel = 0;
+    this._decodedEl = audioEl;
+    this._decodedEnvelope = null;
+    this._log.log('analyser', 'Active -> decoded levels (WebKit media tap fallback)');
+    if (this._barEl && !this._rafId) {
+      this._tick();
+    }
+    try {
+      const envelope = await this._getEnvelope(url);
+      // Superseded while decoding (new playback attached, or detached)
+      if (this._decodedEl !== audioEl || !this._external) return;
+      this._decodedEnvelope = envelope;
+    } catch (e) {
+      this._log.log('analyser', `Decoded-level fallback failed: ${e?.message || e}`);
+    }
+  }
+
+  /** Envelope meanAbs at the element's playhead, 0 when paused/ended. */
+  _decodedLevelNow() {
+    const el = this._decodedEl;
+    const env = this._decodedEnvelope;
+    if (!el || !env || el.paused) return 0;
+    const idx = Math.floor(el.currentTime / env.windowSec);
+    return idx >= 0 && idx < env.levels.length ? env.levels[idx] : 0;
+  }
+
+  async _getEnvelope(url) {
+    const cached = this._envelopeCache.get(url);
+    if (cached) {
+      // Refresh LRU position - repeated chime URLs stay resident while
+      // one-shot TTS URLs age out.
+      this._envelopeCache.delete(url);
+      this._envelopeCache.set(url, cached);
+      return cached;
+    }
+    const resp = await fetch(url, { credentials: 'same-origin' });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const bytes = await resp.arrayBuffer();
+    const buf = await this._decodeAudio(bytes);
+    const envelope = this._computeEnvelope(buf);
+    this._envelopeCache.set(url, envelope);
+    while (this._envelopeCache.size > 8) {
+      this._envelopeCache.delete(this._envelopeCache.keys().next().value);
+    }
+    return envelope;
+  }
+
+  _decodeAudio(bytes) {
+    // Reuse the capture context when one exists - decodeAudioData works
+    // even on a suspended context. Otherwise keep one lazy context that
+    // only ever decodes and never routes audio anywhere.
+    let ctx = this._card?.audio?.audioContext;
+    if (!ctx || ctx.state === 'closed') {
+      if (!this._decodeContext || this._decodeContext.state === 'closed') {
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        this._decodeContext = new Ctor();
+      }
+      ctx = this._decodeContext;
+    }
+    // Callback form: older WebKit predates the promise variant. Swallow
+    // the parallel promise rejection where both are supported so the
+    // failure only surfaces through the callback path.
+    return new Promise((resolve, reject) => {
+      const p = ctx.decodeAudioData(bytes, resolve, reject);
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    });
+  }
+
+  _computeEnvelope(audioBuffer) {
+    // Mean |amplitude| per 50ms window - the same meanAbs semantics as
+    // getByteTimeDomainData in _tick(), so _mapVisualLevel applies
+    // unchanged and WebKit renders the same bar Chrome does.
+    const windowSec = 0.05;
+    const data = audioBuffer.getChannelData(0);
+    const perWindow = Math.max(1, Math.round(audioBuffer.sampleRate * windowSec));
+    const count = Math.max(1, Math.ceil(data.length / perWindow));
+    const levels = new Float32Array(count);
+    for (let w = 0; w < count; w++) {
+      const start = w * perWindow;
+      const end = Math.min(data.length, start + perWindow);
+      let sum = 0;
+      for (let i = start; i < end; i++) sum += Math.abs(data[i]);
+      levels[w] = end > start ? sum / (end - start) : 0;
+    }
+    return { levels, windowSec };
   }
 
   /**
@@ -348,8 +493,9 @@ export class AnalyserManager {
     let isMic = false;
     let meanAbs;
     if (this._external) {
-      // Native playback: the app already measured this frame's level.
-      meanAbs = this._externalLevel;
+      // Native playback pushes measured levels; the WebKit fallback reads
+      // the decoded envelope at the element's playhead instead.
+      meanAbs = this._decodedEnvelope ? this._decodedLevelNow() : this._externalLevel;
     } else {
       // Use time-domain waveform amplitude for a simple level meter. This is
       // cheaper than FFT/frequency analysis and visually sufficient here.
