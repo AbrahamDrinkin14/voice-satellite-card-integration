@@ -142,6 +142,14 @@ export class UIManager {
 
     if (existing) {
       this._globalUI = existing;
+      // Markup left behind by an older card version predates the glow
+      // child the reactive skins render into.
+      const bar = existing.querySelector('.vs-rainbow-bar');
+      if (bar && !bar.querySelector('.vs-bar-glow')) {
+        const glow = document.createElement('div');
+        glow.className = 'vs-bar-glow';
+        bar.appendChild(glow);
+      }
       this._applyEngineClass();
       this.applyStyles();
       this._flushPendingStartButton();
@@ -158,7 +166,7 @@ export class UIManager {
       '<div class="vs-chat-container"></div>' +
       '<div class="vs-image-panel"><div class="vs-panel-scroll"></div></div>' +
       '<div class="vs-lightbox"><img class="vs-lightbox-img" /><iframe class="vs-lightbox-iframe" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>' +
-      '<div class="vs-rainbow-bar"></div>';
+      '<div class="vs-rainbow-bar"><div class="vs-bar-glow"></div></div>';
 
     document.body.appendChild(ui);
     this._globalUI = ui;

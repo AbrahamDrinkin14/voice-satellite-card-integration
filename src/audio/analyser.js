@@ -73,10 +73,12 @@ export class AnalyserManager {
     this._decodeContext = null;
 
     this._rafId = null;
+    this._timerId = null;
     this._barEl = null;
     this._visibilityHandler = null;
     this._lastLevel = -1;
     this._lastTick = 0;
+    this._defaultIntervalMs = 0;
 
     // Bound tick for RAF to avoid creating a new closure per frame
     this._boundTick = () => this._tick();
@@ -187,7 +189,7 @@ export class AnalyserManager {
       // Auto-start tick loop if a bar element is waiting (deferred start
       // from onNotificationStart — bar was prepared but loop deferred
       // until audio was attached).
-      if (this._barEl && !this._rafId) {
+      if (this._barEl && !this._isTicking()) {
         this._log.log('analyser', 'Auto-starting tick loop (deferred bar ready)');
         this._tick();
       }
@@ -222,7 +224,7 @@ export class AnalyserManager {
     this._decodedEl = null;
     this._decodedEnvelope = null;
     this._log.log('analyser', 'Active -> external (native playback levels)');
-    if (this._barEl && !this._rafId) {
+    if (this._barEl && !this._isTicking()) {
       this._tick();
     }
   }
@@ -266,7 +268,7 @@ export class AnalyserManager {
     this._decodedEl = audioEl;
     this._decodedEnvelope = null;
     this._log.log('analyser', 'Active -> decoded levels (WebKit media tap fallback)');
-    if (this._barEl && !this._rafId) {
+    if (this._barEl && !this._isTicking()) {
       this._tick();
     }
     try {
@@ -397,17 +399,14 @@ export class AnalyserManager {
     if (!this._visibilityHandler) {
       this._visibilityHandler = () => {
         if (document.hidden) {
-          if (this._rafId) {
-            cancelAnimationFrame(this._rafId);
-            this._rafId = null;
-          }
-        } else if (this._barEl && !this._rafId) {
+          this._cancelScheduledTick();
+        } else if (this._barEl && !this._isTicking()) {
           this._tick();
         }
       };
       document.addEventListener('visibilitychange', this._visibilityHandler);
     }
-    if (this._rafId) return; // Already running
+    if (this._isTicking()) return; // Already running
     if (!deferred) this._tick();
   }
 
@@ -415,10 +414,7 @@ export class AnalyserManager {
    * Stop the animation frame loop and reset the CSS variable.
    */
   stop() {
-    if (this._rafId) {
-      cancelAnimationFrame(this._rafId);
-      this._rafId = null;
-    }
+    this._cancelScheduledTick();
     if (this._visibilityHandler) {
       document.removeEventListener('visibilitychange', this._visibilityHandler);
       this._visibilityHandler = null;
@@ -474,17 +470,18 @@ export class AnalyserManager {
   }
 
   _tick() {
+    this._rafId = null;
     if (!this._barEl || (!this._activeAnalyser && !this._external)) {
-      this._rafId = null;
       return;
     }
 
-    // Cap at ~20 fps - CSS transitions smooth the gaps and this saves CPU
-    // significantly on low-end Android wall tablets.
+    // Pace to the update interval - CSS transitions smooth the gaps and
+    // this saves CPU significantly on low-end Android wall tablets.
     const now = performance.now();
     const targetIntervalMs = this._getUpdateIntervalMs();
-    if (now - this._lastTick < targetIntervalMs) {
-      this._rafId = requestAnimationFrame(this._boundTick);
+    const elapsed = now - this._lastTick;
+    if (elapsed < targetIntervalMs) {
+      this._scheduleTick(targetIntervalMs - elapsed);
       return;
     }
 
@@ -533,7 +530,7 @@ export class AnalyserManager {
     // stuck on whatever pre-warmup value was there.
     if (this._warmupUntil) {
       if (now < this._warmupUntil) {
-        this._rafId = requestAnimationFrame(this._boundTick);
+        this._scheduleTick(targetIntervalMs);
         return;
       }
       this._warmupUntil = 0;
@@ -545,7 +542,35 @@ export class AnalyserManager {
       this._barEl.style.setProperty('--vs-audio-level', level.toFixed(2));
     }
 
-    this._rafId = requestAnimationFrame(this._boundTick);
+    this._scheduleTick(targetIntervalMs);
+  }
+
+  /**
+   * Queue the next tick: a timer to just before the due time, then one RAF
+   * hop so the write lands with frame production. The old loop re-entered
+   * RAF every vsync and discarded most frames against the interval check,
+   * which kept the main thread waking at 60 Hz for 20-30 Hz of work.
+   */
+  _scheduleTick(delayMs) {
+    this._timerId = setTimeout(() => {
+      this._timerId = null;
+      this._rafId = requestAnimationFrame(this._boundTick);
+    }, Math.max(0, delayMs - 2));
+  }
+
+  _isTicking() {
+    return !!(this._rafId || this._timerId);
+  }
+
+  _cancelScheduledTick() {
+    if (this._rafId) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = null;
+    }
+    if (this._timerId) {
+      clearTimeout(this._timerId);
+      this._timerId = null;
+    }
   }
 
   _setActiveAnalyser(analyser) {
@@ -571,7 +596,17 @@ export class AnalyserManager {
 
   _getUpdateIntervalMs() {
     const raw = Number(this._card?.config?.reactive_bar_update_interval_ms);
-    if (!Number.isFinite(raw)) return 33;
+    if (!Number.isFinite(raw)) {
+      // ~30 fps by default; ~20 fps where the hardware advertises itself
+      // as weak (Echo Show-class tablets: <=2 GB RAM or <=4 cores). The
+      // CSS transitions smooth either cadence.
+      if (!this._defaultIntervalMs) {
+        const lowEnd = (navigator.deviceMemory && navigator.deviceMemory <= 2)
+          || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4);
+        this._defaultIntervalMs = lowEnd ? 50 : 33;
+      }
+      return this._defaultIntervalMs;
+    }
     // Cap at 60fps max (minimum interval ~16.67ms, rounded to 17ms).
     return Math.max(17, raw);
   }

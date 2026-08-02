@@ -84,13 +84,20 @@ export class AudioManager {
    * @param {'wake_word' | 'stt'} [mode='wake_word']
    */
   async startMicrophone(mode = 'wake_word') {
-    await this._ensureAudioContextRunning();
-
     // Kiosk Satellite owns the mic (it is already capturing for native
     // wake-word detection).  Stream its audio instead of opening a second
     // capture: getUserMedia costs ~600 ms here, which is dead air right after
     // the wake word, exactly where the user's command starts.
-    if (this._card._nativeWakeActive && kiosk.supportsAudioStream()) {
+    const kioskMic = this._card._nativeWakeActive && kiosk.supportsAudioStream();
+
+    // The delegated path only touches Web Audio to drive the reactive-bar
+    // analyser; with the bar off it needs no AudioContext at all, which on
+    // weak hardware means one less live audio output stream per turn.
+    if (!kioskMic || this._card.isReactiveBarEnabled) {
+      await this._ensureAudioContextRunning();
+    }
+
+    if (kioskMic) {
       await this._startKioskMicrophone(mode);
       return;
     }
@@ -155,8 +162,10 @@ export class AudioManager {
 
     // Republish the delegated audio as a real AudioNode so the reactive bar's
     // analyser can tap it exactly like a mic source (see setupPushAudioSource).
-    this._sourceNode = await setupPushAudioSource(this);
+    // The node exists only for the analyser, so skip the whole graph (and the
+    // per-chunk copy + worklet post below) when the bar is disabled.
     if (this._card.isReactiveBarEnabled) {
+      this._sourceNode = await setupPushAudioSource(this);
       this._card.analyser.attachMic(this._sourceNode, this._audioContext);
     }
 

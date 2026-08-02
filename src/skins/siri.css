@@ -155,14 +155,30 @@
   animation: siri-rotate 2s linear infinite;
 }
 
-/* Reactive Bar - audio-driven glow intensity around the frame */
+/* Reactive Bar - audio-driven glow intensity around the frame. The frame
+   keeps its constant base drop-shadow; the level drives only the opacity
+   of a static shadow overlay, so the glow is rasterized once and every
+   level change is a compositor-only opacity update. The old approach put
+   the level inside the drop-shadow radius, which re-rendered the whole
+   viewport-sized frame's filter chain on every change. */
 #voice-satellite-ui .vs-rainbow-bar.reactive {
   overflow: visible;
-  transition: filter 0.05s linear;
-  filter: drop-shadow(0 0 calc(4px + 12px * var(--vs-audio-level, 0)) rgba(139, 92, 246, calc(0.7 + 0.3 * var(--vs-audio-level, 0))))
-         drop-shadow(0 0 calc(2px + 6px * var(--vs-audio-level, 0)) rgba(59, 130, 246, calc(0.5 + 0.3 * var(--vs-audio-level, 0))));
   transform: translateZ(0);
-  will-change: filter;
+}
+
+#voice-satellite-ui .vs-rainbow-bar.reactive::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  box-shadow:
+    0 0 16px rgba(139, 92, 246, 0.85),
+    0 0 7px rgba(59, 130, 246, 0.7),
+    inset 0 0 16px rgba(139, 92, 246, 0.6),
+    inset 0 0 7px rgba(59, 130, 246, 0.45);
+  opacity: var(--vs-audio-level, 0);
+  transition: opacity 0.05s linear;
+  pointer-events: none;
+  will-change: opacity;
 }
 
 #voice-satellite-ui .vs-rainbow-bar.reactive.listening {

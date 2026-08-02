@@ -132,41 +132,57 @@
   will-change: background-position;
 }
 
-#voice-satellite-ui .vs-rainbow-bar.reactive::after {
-  content: '';
+/* Glow layer. The blurred strip is painted once at a FIXED blur radius and
+   then only ever composited: intensity tracks the audio level through
+   opacity on this box. The gradient is near-uniform cyan, so a blurred
+   copy carries no visible shimmer detail and can stay static. A
+   level-dependent blur radius here (the old approach) forced a full GPU
+   re-blur of the layer every level change, which low-end devices cannot
+   keep up with. */
+#voice-satellite-ui .vs-rainbow-bar .vs-bar-glow {
+  display: none;
   position: absolute;
-  /* The box is padded well past the bar because WebKit clips filter
-     output at the element's box: any glow meant to spread beyond the bar
-     must still be painted inside this element. The bar image is a 12px
-     strip centered in the padded box (repeat-x, not a box-filling
-     background), so the blur has room to spread in every direction, and
-     the mask fades the strip's ends before they can reach the clip edge. */
+  /* The box is padded well past the bar so the fixed blur has room to
+     spread in every direction, and the mask fades the strip's ends before
+     they can reach the clip edge. */
   top: -36px;
   bottom: -36px;
   left: -4%;
   right: -4%;
-  background: linear-gradient(90deg, #00CAFF, #00E5FF, #00CAFF);
-  background-size: 200% 20px;
-  /* Follow the bar's shimmer on x, but keep the strip vertically centered
-     in the padded box - the shimmer keyframes carry y=0, which would pin
-     the strip to the top of the box if inherited wholesale. */
-  background-position: inherit;
-  background-position-y: 50%;
-  background-repeat: repeat-x;
+  overflow: hidden;
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
   mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
-  filter: blur(calc(6px + 12px * var(--vs-audio-level, 0)));
-  opacity: calc(var(--vs-audio-level, 0) * 2.5);
   z-index: -1;
   pointer-events: none;
+  transition: opacity 0.05s linear;
   will-change: opacity;
 }
 
+#voice-satellite-ui .vs-rainbow-bar.reactive .vs-bar-glow {
+  display: block;
+  opacity: calc(var(--vs-audio-level, 0) * 2.5);
+}
+
+#voice-satellite-ui .vs-rainbow-bar .vs-bar-glow::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(90deg, #00CAFF, #00E5FF, #00CAFF);
+  background-size: 100% 20px;
+  background-position: 0 50%;
+  background-repeat: repeat-x;
+  filter: blur(12px);
+  transform: translateZ(0);
+}
+
 /* Blink spreads blur further than WebKit at the same radius, washing the
-   glow out into a larger, dimmer halo. Tighten the curve outside WebKit so
+   glow out into a larger, dimmer halo. Tighten the radius outside WebKit so
    both engines render the same localized glow. */
-#voice-satellite-ui:not(.vs-webkit) .vs-rainbow-bar.reactive::after {
-  filter: blur(calc(4px + 8px * var(--vs-audio-level, 0)));
+#voice-satellite-ui:not(.vs-webkit) .vs-rainbow-bar .vs-bar-glow::before {
+  filter: blur(8px);
 }
 
 #voice-satellite-ui .vs-rainbow-bar.reactive.listening {
