@@ -154,8 +154,13 @@
   mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
   z-index: -1;
   pointer-events: none;
-  transition: opacity 0.05s linear;
-  will-change: opacity;
+  /* Squashing the cached blur texture reads as a smaller blur radius, so
+     the glow's SIZE still grows with the level like the old level-driven
+     radius did - but as a compositor transform, with no re-raster. The
+     range mirrors the old radius span (4+8*level vs the fixed 12). */
+  transform: scaleY(calc(0.4 + 0.6 * var(--vs-audio-level, 0)));
+  transition: opacity 0.05s linear, transform 0.05s linear;
+  will-change: opacity, transform;
 }
 
 #voice-satellite-ui .vs-rainbow-bar.reactive .vs-bar-glow {
@@ -174,7 +179,7 @@
   background-size: 100% 20px;
   background-position: 0 50%;
   background-repeat: repeat-x;
-  filter: blur(12px);
+  filter: blur(18px);
   transform: translateZ(0);
 }
 
@@ -182,7 +187,7 @@
    glow out into a larger, dimmer halo. Tighten the radius outside WebKit so
    both engines render the same localized glow. */
 #voice-satellite-ui:not(.vs-webkit) .vs-rainbow-bar .vs-bar-glow::before {
-  filter: blur(8px);
+  filter: blur(12px);
 }
 
 #voice-satellite-ui .vs-rainbow-bar.reactive.listening {
