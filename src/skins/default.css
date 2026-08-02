@@ -185,8 +185,18 @@
   transition: transform 0.05s linear;
   transform-origin: bottom;
   overflow: visible;
+  background: none;
   transform: translateZ(0) scaleY(calc(1 + 3 * var(--vs-audio-level, 0)));
   will-change: transform;
+}
+
+/* In reactive mode the bar's own background is gone (the fill child below
+   renders the gradient), so its background-position flow animation would
+   only burn main-thread time. */
+#voice-satellite-ui .vs-rainbow-bar.reactive.listening,
+#voice-satellite-ui .vs-rainbow-bar.reactive.processing,
+#voice-satellite-ui .vs-rainbow-bar.reactive.speaking {
+  animation: none;
 }
 
 /* Glow layer. The blurred gradient is painted once at a FIXED blur radius
@@ -248,17 +258,55 @@
   filter: blur(8px);
 }
 
-/* Same durations as the bar's flow animation: both move one full gradient
-   period per cycle, so the glow tracks the bar's colors. */
-#voice-satellite-ui .vs-rainbow-bar.reactive.listening .vs-bar-glow::before {
+/* Crisp gradient the bar shows while reactive. Same slab construction as
+   the glow: the two ::before elements run the SAME animation applied in the
+   same style update, which gives them the same start time - that is what
+   keeps the glow's colors locked under the bar's through every state
+   transition. (The bar's own background-position animation starts with the
+   state class, not with .reactive, so it cannot be used as the reference.) */
+#voice-satellite-ui .vs-rainbow-bar .vs-bar-fill {
+  display: none;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+#voice-satellite-ui .vs-rainbow-bar.reactive .vs-bar-fill {
+  display: block;
+}
+
+#voice-satellite-ui .vs-rainbow-bar .vs-bar-fill::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 400%;
+  background: linear-gradient(90deg, #FF4444, #FF7733, #FFBB22, #88DD33, #33CC77, #33BBEE, #4488FF, #8844FF, #FF44AA, #FF4444);
+  background-size: 50% 100%;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+/* Same duration on fill and glow: both slide one gradient period per
+   cycle from a shared start time. */
+#voice-satellite-ui .vs-rainbow-bar.reactive.listening .vs-bar-glow::before,
+#voice-satellite-ui .vs-rainbow-bar.reactive.listening .vs-bar-fill::before {
   animation: vs-glow-slide 3s linear infinite;
 }
 
-#voice-satellite-ui .vs-rainbow-bar.reactive.processing .vs-bar-glow::before {
+#voice-satellite-ui .vs-rainbow-bar.reactive.processing .vs-bar-glow::before,
+#voice-satellite-ui .vs-rainbow-bar.reactive.processing .vs-bar-fill::before {
   animation: vs-glow-slide 0.5s linear infinite;
 }
 
-#voice-satellite-ui .vs-rainbow-bar.reactive.speaking .vs-bar-glow::before {
+#voice-satellite-ui .vs-rainbow-bar.reactive.speaking .vs-bar-glow::before,
+#voice-satellite-ui .vs-rainbow-bar.reactive.speaking .vs-bar-fill::before {
   animation: vs-glow-slide 2s linear infinite;
 }
 
