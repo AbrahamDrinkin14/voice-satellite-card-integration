@@ -60,6 +60,7 @@ export class AnalyserManager {
     // manager's lifetime: they describe the device, not one voice turn.
     this._micFloor = null;
     this._micPeakEnv = 0;
+    this._micAdaptive = false;
 
     // External level mode: playback that never enters the Web Audio graph
     // (Kiosk Satellite native playback) pushes its measured level here and
@@ -669,7 +670,9 @@ export class AnalyserManager {
       // dark — users expect "no sound → no glow".  The old threshold
       // of 0.015 was set low enough that any quiet room passed it,
       // and the floor of 0.12 kept a visible glow on through silence.
-      if (curved <= 0.06) return 0;
+      // On quiet captures the adaptive gate in _normalizeMicLevel has
+      // already made this call relative to the device's own floor.
+      if (curved <= 0.06 && !this._micAdaptive) return 0;
       // Above the gate, lift soft voices with a small visible floor
       // that's low enough not to read as "always on" when the mic
       // briefly clips a keyboard click or door close.
@@ -709,11 +712,24 @@ export class AnalyserManager {
       // its own floor.
       this._micFloor = Math.min(prev * 1.002, 0.05);
     }
-    if (meanAbs <= this._micFloor * 3) return 0;
+    if (meanAbs <= this._micFloor * 3) {
+      this._micAdaptive = false;
+      return 0;
+    }
 
+    // Up to 64x (36 dB): far-field speech on the quietest captures sits
+    // around 3e-4 after weighting and must still reach the mapping's
+    // working range. The envelope decay recovers sensitivity within a few
+    // seconds of a loud moment instead of tens.
     const REF = 0.05;
-    this._micPeakEnv = Math.max(this._micPeakEnv * 0.999, meanAbs);
-    const boost = Math.min(16, Math.max(1, REF / Math.max(this._micPeakEnv, REF / 16)));
+    const MAX_BOOST = 64;
+    this._micPeakEnv = Math.max(this._micPeakEnv * 0.997, meanAbs);
+    const boost = Math.min(MAX_BOOST, Math.max(1, REF / Math.max(this._micPeakEnv, REF / MAX_BOOST)));
+    // When the boost is doing real work, the adaptive gate above has
+    // already separated speech from ambient; the absolute gate in
+    // _mapVisualLevel is tuned for calibrated captures and would eat the
+    // boosted signal, so it stands down (see _micAdaptive there).
+    this._micAdaptive = boost > 1.01;
     return meanAbs * boost;
   }
 
