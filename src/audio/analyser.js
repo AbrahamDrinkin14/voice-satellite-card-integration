@@ -54,6 +54,12 @@ export class AnalyserManager {
     this._activeAnalyser = null;
     this._dataArray = null;
     this._freqDataArray = null;
+    this._floatDataArray = null;
+
+    // Adaptive mic references (see _normalizeMicLevel). Kept for the
+    // manager's lifetime: they describe the device, not one voice turn.
+    this._micFloor = null;
+    this._micPeakEnv = 0;
 
     // External level mode: playback that never enters the Web Audio graph
     // (Kiosk Satellite native playback) pushes its measured level here and
@@ -500,18 +506,34 @@ export class AnalyserManager {
         isNativeLevel = true;
       }
     } else {
-      // Use time-domain waveform amplitude for a simple level meter. This is
-      // cheaper than FFT/frequency analysis and visually sufficient here.
-      this._activeAnalyser.getByteTimeDomainData(this._dataArray);
-
-      // Compute mean absolute amplitude normalized to 0-1, then quantize to
-      // skip redundant CSS updates when the level barely changes.
-      let sum = 0;
-      for (let i = 0; i < this._dataArray.length; i++) {
-        sum += Math.abs(this._dataArray[i] - 128);
-      }
       isMic = this._activeAnalyser === this._micAnalyser;
-      meanAbs = (sum / this._dataArray.length) / 128;
+      if (isMic && typeof this._activeAnalyser.getFloatTimeDomainData === 'function') {
+        // Float resolution for the mic: an uncalibrated capture can sit
+        // 30 dB down (Echo Show 5 under LineageOS), where 8-bit samples
+        // round to flat silence and the adaptive mapping in
+        // _normalizeMicLevel has nothing to work with.
+        let f = this._floatDataArray;
+        if (!f || f.length !== this._activeAnalyser.fftSize) {
+          f = new Float32Array(this._activeAnalyser.fftSize);
+          this._floatDataArray = f;
+        }
+        this._activeAnalyser.getFloatTimeDomainData(f);
+        let sum = 0;
+        for (let i = 0; i < f.length; i++) sum += Math.abs(f[i]);
+        meanAbs = sum / f.length;
+      } else {
+        // Use time-domain waveform amplitude for a simple level meter. This is
+        // cheaper than FFT/frequency analysis and visually sufficient here.
+        this._activeAnalyser.getByteTimeDomainData(this._dataArray);
+
+        // Compute mean absolute amplitude normalized to 0-1, then quantize to
+        // skip redundant CSS updates when the level barely changes.
+        let sum = 0;
+        for (let i = 0; i < this._dataArray.length; i++) {
+          sum += Math.abs(this._dataArray[i] - 128);
+        }
+        meanAbs = (sum / this._dataArray.length) / 128;
+      }
 
       if (isMic && this._freqDataArray) {
         this._activeAnalyser.getByteFrequencyData(this._freqDataArray);
@@ -625,6 +647,14 @@ export class AnalyserManager {
       return Math.min(1, meanAbs * 2.2);
     }
 
+    // Mic levels are first re-referenced to the capture's own floor and
+    // speech envelope, so the absolute mapping below behaves the same on a
+    // quiet ROM capture as on a calibrated one.
+    if (isMic) {
+      meanAbs = this._normalizeMicLevel(meanAbs);
+      if (meanAbs === 0) return 0;
+    }
+
     // Mic input tends to sit much lower than local/remote playback, so give
     // it a slightly stronger lift plus a small visible floor once real input
     // is present. The nonlinear curve keeps quiet speech readable without
@@ -648,6 +678,43 @@ export class AnalyserManager {
     }
 
     return curved;
+  }
+
+  /**
+   * Device-independent mic level. The absolute mapping in _mapVisualLevel
+   * assumes a roughly calibrated capture, but some ROM ports record
+   * 20-30 dB low (Echo Show 5 under LineageOS): real speech then never
+   * clears the noise gate and the bar reads as dead, even though wake word
+   * detection and STT, which normalize per-feature, work fine.
+   *
+   * Two references, both learned from the capture itself:
+   *  - a noise floor that follows drops immediately and creeps up slowly.
+   *    Anything under 3x the floor is ambient and renders dark whatever
+   *    its absolute level, on every device.
+   *  - a slow envelope of the peaks above that gate (speech evidence -
+   *    silence between utterances cannot feed it). When it shows the
+   *    capture runs quiet, levels are boosted up to 16x toward what a
+   *    healthy capture produces, so the visual mapping applies unchanged.
+   *    A healthy capture's envelope keeps the boost at 1.
+   */
+  _normalizeMicLevel(meanAbs) {
+    // Absolute epsilon so a digitally silent capture cannot drive the
+    // floor to zero and turn dither into "speech".
+    const EPS = 1e-4;
+    const prev = this._micFloor;
+    if (prev == null || meanAbs < prev) {
+      this._micFloor = Math.max(meanAbs, EPS);
+    } else {
+      // Capped below speech levels so a long utterance can never become
+      // its own floor.
+      this._micFloor = Math.min(prev * 1.002, 0.05);
+    }
+    if (meanAbs <= this._micFloor * 3) return 0;
+
+    const REF = 0.05;
+    this._micPeakEnv = Math.max(this._micPeakEnv * 0.999, meanAbs);
+    const boost = Math.min(16, Math.max(1, REF / Math.max(this._micPeakEnv, REF / 16)));
+    return meanAbs * boost;
   }
 
   _getMicSpeechWeight(analyser, freqData) {
