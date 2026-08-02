@@ -1184,13 +1184,17 @@ export class WakeWordManager {
           // state since we're already mid-interaction.
           session.ui.setReactiveSuppressed(false);
           if ([State.WAKE_WORD_DETECTED, State.STT].includes(session.currentState)) {
-            // Suppress the first ~200 ms of analyser writes: flipping the
+            // Suppress the first stretch of analyser output: flipping the
             // mic tracks back on produces a brief activation transient
             // (DC step / driver click) that the speech-band weighting
             // amplifies into a visible "bleep" glow before the real
-            // signal settles.  The analyser's RAF still runs so its
-            // smoothing warms up against live audio during the window.
-            session.ui.startReactive({ warmupMs: 200 });
+            // signal settles.  Delegated captures get a longer window:
+            // their mic never closed, and on devices without a working
+            // AEC the wake chime's tail and room reverb are still in the
+            // stream for a few hundred ms after the unmute.
+            session.ui.startReactive({
+              warmupMs: session._nativeWakeActive ? 500 : 200,
+            });
           }
         }, unmuteAfter);
       }, WAKE_DEDUPE_WINDOW_MS);

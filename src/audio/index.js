@@ -5,7 +5,7 @@
  * and audio stream send control.
  */
 
-import { setupAudioWorklet, setupPushAudioSource, sendAudioBuffer } from './processing.js';
+import { setupAudioWorklet, sendAudioBuffer } from './processing.js';
 import { resolveDspForMode } from './dsp-config.js';
 import { describeAudioInputDevices, describeSelectedAudioTrack } from './devices.js';
 import * as kiosk from '../kiosk/index.js';
@@ -88,19 +88,16 @@ export class AudioManager {
     // wake-word detection).  Stream its audio instead of opening a second
     // capture: getUserMedia costs ~600 ms here, which is dead air right after
     // the wake word, exactly where the user's command starts.
-    const kioskMic = this._card._nativeWakeActive && kiosk.supportsAudioStream();
-
-    // The delegated path only touches Web Audio to drive the reactive-bar
-    // analyser; with the bar off it needs no AudioContext at all, which on
-    // weak hardware means one less live audio output stream per turn.
-    if (!kioskMic || this._card.isReactiveBarEnabled) {
-      await this._ensureAudioContextRunning();
-    }
-
-    if (kioskMic) {
+    //
+    // No Web Audio at all on this path: STT consumes the raw chunks and the
+    // reactive bar reads per-chunk levels (analyser.pushMicPcm), so weak
+    // hardware carries no audio graph for the whole turn.
+    if (this._card._nativeWakeActive && kiosk.supportsAudioStream()) {
       await this._startKioskMicrophone(mode);
       return;
     }
+
+    await this._ensureAudioContextRunning();
 
     const { config } = this._card;
     this._currentMicMode = mode;
@@ -160,36 +157,36 @@ export class AudioManager {
     this._currentMicMode = mode;
     this._actualSampleRate = TARGET_SAMPLE_RATE;
 
-    // Republish the delegated audio as a real AudioNode so the reactive bar's
-    // analyser can tap it exactly like a mic source (see setupPushAudioSource).
-    // The node exists only for the analyser, so skip the whole graph (and the
-    // per-chunk copy + worklet post below) when the bar is disabled.
+    // The reactive bar reads levels computed from the chunks themselves
+    // (hold-last-value external mode). Deliberately NOT a Web Audio graph:
+    // chunk events arrive on the page main thread and clump under load, and
+    // a realtime worklet renders the gaps between clumps as silence - on
+    // slow devices the bar then reads dead while STT hears fine.
     if (this._card.isReactiveBarEnabled) {
-      this._sourceNode = await setupPushAudioSource(this);
-      this._card.analyser.attachMic(this._sourceNode, this._audioContext);
+      this._card.analyser.attachExternalMic();
     }
 
     kiosk.bindAudioStream((samples, _rate, preRoll) => {
       // Muted: drop the audio on the floor rather than buffer it. This is what
       // disabling the MediaStream's tracks does for a getUserMedia source, and
       // it is what keeps the deferred wake chime out of the STT recording
-      // during the cross-tablet dedupe window.
-      if (this._micTracksMuted) return;
+      // during the cross-tablet dedupe window. The bar level is zeroed so it
+      // does not hold the last pre-mute value through the wait.
+      if (this._micTracksMuted) {
+        this._card.analyser.setExternalLevel(0);
+        return;
+      }
       // Mirror the AudioWorklet handler: only buffer while we're streaming to
       // the pipeline (or during the brief pre-handler capture window).
       if (this._sendInterval || this._captureBuffering) {
         this._audioBuffer.push(samples);
       }
       // The pre-roll is audio from *before* the stream opened. The pipeline
-      // needs it, the reactive bar must not see it: this graph runs at 16 kHz
-      // and is fed 16 kHz, so it drains exactly as fast as it fills and any
-      // head start becomes permanent latency (the bar would trail live speech
-      // by the whole pre-roll for the rest of the turn).
+      // needs it, the reactive bar must not see it: it is past audio, and
+      // rendering it would show the bar reacting to speech already spoken.
       if (preRoll) return;
-      // Drive the reactive bar. Copy: the worklet transfers/retains the
-      // buffer, and the same samples are already queued for the pipeline.
-      const node = this._sourceNode;
-      if (node) node.port.postMessage(samples.slice());
+      // Drive the reactive bar from the chunk itself.
+      this._card.analyser.pushMicPcm(samples);
     });
 
     const res = await kiosk.startAudioStream();
@@ -321,15 +318,7 @@ export class AudioManager {
     if (this._mediaStream === KIOSK_MEDIA_STREAM) {
       kiosk.unbindAudioStream();
       kiosk.stopAudioStream();
-      if (this._sourceNode) {
-        this._card.analyser.detachMic(this._sourceNode);
-        try { this._sourceNode.disconnect(); } catch (_) { /* ignore */ }
-        this._sourceNode = null;
-      }
-      if (this._pushSilentGain) {
-        try { this._pushSilentGain.disconnect(); } catch (_) { /* ignore */ }
-        this._pushSilentGain = null;
-      }
+      this._card.analyser.detachExternal();
       this._mediaStream = null;
       this._captureBuffering = false;
       this._audioBuffer = [];

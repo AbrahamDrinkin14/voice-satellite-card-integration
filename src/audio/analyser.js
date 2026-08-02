@@ -68,7 +68,10 @@ export class AnalyserManager {
     // as getByteTimeDomainData (mean |amplitude| normalized 0..1), so the
     // visual mapping is shared.
     this._external = false;
+    this._externalIsMic = false;
     this._externalLevel = 0;
+    this._lastMicPushAt = 0;
+    this._micBands = null;
     this._analyserBuffers = new WeakMap();
     this._analyserFrequencyBuffers = new WeakMap();
 
@@ -227,6 +230,10 @@ export class AnalyserManager {
   attachExternal() {
     this._detachAudio();
     this._external = true;
+    // Playback takes over the external channel: without this, TTS levels
+    // arriving while the delegated mic is still attached render through
+    // the mic mapping and its adaptive boost slams the bar to full.
+    this._externalIsMic = false;
     this._externalLevel = 0;
     this._decodedEl = null;
     this._decodedEnvelope = null;
@@ -241,10 +248,81 @@ export class AnalyserManager {
     this._externalLevel = Number(level) || 0;
   }
 
+  /**
+   * External mode for the DELEGATED MIC (Kiosk Satellite streams PCM chunks
+   * into the page): levels are computed per chunk in [pushMicPcm] and read
+   * here with hold-last-value semantics. This deliberately does not go
+   * through a Web Audio graph: chunk events ride evaluateJavascript onto
+   * the page's main thread, and on slow devices they arrive in clumps - a
+   * realtime worklet starves between clumps and renders the gaps as
+   * silence, which reads as a dead bar (seen on the Echo Show 5). A held
+   * level cannot fake silence, and a chunk is ~80 ms, the bar's own update
+   * cadence anyway.
+   */
+  attachExternalMic() {
+    this._detachAudio();
+    this._external = true;
+    this._externalIsMic = true;
+    this._externalLevel = 0;
+    this._lastMicPushAt = 0;
+    this._micBands = null;
+    this._decodedEl = null;
+    this._decodedEnvelope = null;
+    this._log.log('analyser', 'Active -> external mic (delegated PCM levels)');
+    if (this._barEl && !this._isTicking()) {
+      this._tick();
+    }
+  }
+
+  /**
+   * One chunk of delegated mic PCM (Float32Array, [-1, 1], 16 kHz mono).
+   * Computes the weighted level the analyser-tap path would have produced:
+   * meanAbs shaped by a speech-band weight from two one-pole band splits
+   * (the graph path used FFT bins for this; one-poles are plenty for a
+   * 3-band rumble/voice/air split and cost microseconds per chunk).
+   */
+  pushMicPcm(samples) {
+    if (!this._external || !this._externalIsMic || !samples || !samples.length) return;
+    let b = this._micBands;
+    if (!b) {
+      // One-pole low-pass coefficients at 16 kHz: exp(-2*pi*fc/fs)
+      b = this._micBands = { lp180: 0, lp3400: 0, a180: 0.9318, a3400: 0.2628 };
+    }
+    let l180 = b.lp180;
+    let l3400 = b.lp3400;
+    let sumAll = 0;
+    let sumLow = 0;
+    let sumMid = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const x = samples[i];
+      l180 = b.a180 * l180 + (1 - b.a180) * x;
+      l3400 = b.a3400 * l3400 + (1 - b.a3400) * x;
+      sumAll += Math.abs(x);
+      sumLow += Math.abs(l180);
+      sumMid += Math.abs(l3400);
+    }
+    b.lp180 = l180;
+    b.lp3400 = l3400;
+    const n = samples.length;
+    const all = sumAll / n;
+    const low = sumLow / n;
+    const mid = sumMid / n;
+    const voice = Math.max(0, mid - low);
+    const air = Math.max(0, all - mid);
+    // Same intent as _getMicSpeechWeight: favor the speech band, suppress
+    // steady rumble/hiss. The ratio term is scale-free, which matters here
+    // because these are time-domain band levels, not FFT bin magnitudes.
+    const ratio = voice / Math.max(1e-4, low + air + voice);
+    const weight = Math.max(0.18, Math.min(1, ratio * 1.2));
+    this._externalLevel = all * weight;
+    this._lastMicPushAt = performance.now();
+  }
+
   /** Leave external mode and darken the bar, like _detachAudio does. */
   detachExternal() {
     if (!this._external) return;
     this._external = false;
+    this._externalIsMic = false;
     this._externalLevel = 0;
     this._decodedEl = null;
     this._decodedEnvelope = null;
@@ -502,6 +580,11 @@ export class AnalyserManager {
       // the decoded envelope at the element's playhead instead.
       if (this._decodedEnvelope || this._decodedEl) {
         meanAbs = this._decodedLevelNow();
+      } else if (this._externalIsMic) {
+        // Held chunk level; decays to silence when chunks stop arriving
+        // (stream hiccup) so the bar cannot freeze lit.
+        meanAbs = now - this._lastMicPushAt > 250 ? 0 : this._externalLevel;
+        isMic = true;
       } else {
         meanAbs = this._externalLevel;
         isNativeLevel = true;
@@ -542,12 +625,11 @@ export class AnalyserManager {
       }
     }
 
-    const level = Math.min(1, Math.round(this._mapVisualLevel(meanAbs, isMic, isNativeLevel) * 20) / 20);
-
-    // During the post-unmute warmup window, keep the analyser running
-    // (so smoothing converges on live audio) but suppress writes to
-    // --vs-audio-level — any transient "bleep" from mic activation gets
-    // absorbed here instead of being rendered.  When the window ends we
+    // During the post-unmute warmup window, keep the analyser reads running
+    // (so smoothing converges on live audio) but skip the visual mapping
+    // entirely — any transient "bleep" from mic activation, or the wake
+    // chime's tail on AEC-less delegated captures, is neither rendered nor
+    // learned by the adaptive mic references.  When the window ends we
     // force the next real value through by resetting _lastLevel, so the
     // "skip-write-when-unchanged" optimization doesn't leave the bar
     // stuck on whatever pre-warmup value was there.
@@ -559,6 +641,8 @@ export class AnalyserManager {
       this._warmupUntil = 0;
       this._lastLevel = -1;
     }
+
+    const level = Math.min(1, Math.round(this._mapVisualLevel(meanAbs, isMic, isNativeLevel) * 20) / 20);
 
     if (level !== this._lastLevel) {
       this._lastLevel = level;
