@@ -11,6 +11,7 @@ let _alertLoopTimer = null;
 let _alertLoopToken = null;
 let _timerTtsPromise = null;
 let _timerTtsAudio = null;
+let _timerTtsNative = null;
 let _timerTtsRemoteTimer = null;
 let _timerTtsRemoteActive = false;
 // Screensaver keepalive: while the alert is on screen we ping the
@@ -214,6 +215,11 @@ function stopAlertLoop(mgr) {
     _timerTtsAudio = null;
   }
 
+  if (_timerTtsNative) {
+    try { _timerTtsNative.stop(); } catch (_) { /* ignore */ }
+    _timerTtsNative = null;
+  }
+
   if (_timerTtsRemoteTimer) {
     clearTimeout(_timerTtsRemoteTimer);
     _timerTtsRemoteTimer = null;
@@ -348,6 +354,38 @@ async function playTimerTtsMedia(mgr, token, media) {
         }, (durationMs || estimateSpeechMs(media.text)) + TIMER_TTS_REMOTE_PAD_MS);
       });
       return;
+    }
+
+    // Kiosk Satellite host: hand playback to the app, like the chimes and
+    // the voice-turn TTS (issue #115). A browser element here bypassed the
+    // app's audio routing, so with a pinned Bluetooth speaker the chimes
+    // played loud on it while the announcement stayed on the attenuated
+    // media stream, barely audible. Refusal falls back to the element.
+    if (kiosk.supportsNativeSound()) {
+      const tracked = await kiosk.playNativeSoundTracked(
+        url, card.mediaPlayer.volume,
+      );
+      if (tracked) {
+        if (!mgr.alertActive || _alertLoopToken !== token) {
+          // The alert was dismissed while the accept round-tripped;
+          // nothing owns this sound.
+          tracked.stop();
+          return;
+        }
+        _timerTtsNative = tracked;
+        tracked.started.then(() => {
+          if (_timerTtsNative === tracked) {
+            mgr.log.log('timer', 'Timer TTS playback started (native)');
+          }
+        });
+        const { error } = (await tracked.done) || {};
+        if (_timerTtsNative === tracked) _timerTtsNative = null;
+        if (error) {
+          mgr.log.error('timer', `Timer TTS playback failed (native): ${error}`);
+        }
+        return;
+      }
+      mgr.log.log('timer', 'Native playback refused - falling back to browser audio');
     }
 
     await new Promise((resolve) => {
