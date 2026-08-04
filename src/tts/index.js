@@ -6,7 +6,7 @@
  */
 
 import { playChime as playChimeSound, CHIME_WAKE, CHIME_ERROR, CHIME_DONE, getChimeDuration } from '../audio/chime.js';
-import { buildMediaUrl } from '../audio/media-playback.js';
+import { buildMediaUrl, buildRemoteMediaUrl } from '../audio/media-playback.js';
 import { playRemote, restoreRemote, stopRemote } from './comms.js';
 import { getSelectState } from '../shared/satellite-state.js';
 import { supportsNativeSound, playNativeSoundTracked } from '../kiosk/index.js';
@@ -176,7 +176,12 @@ export class TtsManager {
         this._captureRemoteSnapshot();
       }
 
-      playRemote(this._card, mediaId || url, { announce: useAnnounce }).catch(() => {
+      // Prefer the media-source:// URI (HA resolves it server-side); the
+      // URL fallback must be remote-reachable, not resolved against this
+      // page's origin, which under Kiosk Satellite is an in-app loopback
+      // proxy no speaker can fetch from (issue #121).
+      const remoteMediaId = mediaId || buildRemoteMediaUrl(this._card.hass, urlPath);
+      playRemote(this._card, remoteMediaId, { announce: useAnnounce }).catch(() => {
         this._log.log('tts', 'Remote play service call failed - forcing completion');
         this._onComplete();
       });

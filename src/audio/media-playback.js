@@ -20,6 +20,55 @@ export function buildMediaUrl(urlPath) {
   return urlPath.startsWith('/') ? base + urlPath : `${base}/${urlPath}`;
 }
 
+/** True when the given origin's host is a loopback address. */
+function isLoopbackOrigin(origin) {
+  try {
+    const host = new URL(origin).hostname;
+    return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]';
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Normalize a URL path to an absolute URL that devices OTHER than this one
+ * can fetch. Use for any URL handed off externally (media_player.play_media
+ * on a remote speaker); use buildMediaUrl for URLs played on this device.
+ *
+ * Normally identical to buildMediaUrl. The difference is Kiosk Satellite,
+ * which serves the page through an in-app loopback proxy (127.0.0.1) to
+ * satisfy the secure-context requirement - an origin only this device can
+ * reach. In that case relative paths resolve against Home Assistant's real
+ * network address (internal_url, else external_url) instead, and absolute
+ * loopback URLs (e.g. a retry of a previously built URL) are re-based the
+ * same way.
+ *
+ * @param {object} hass - hass object (for config.internal_url/external_url)
+ * @param {string} urlPath - URL or path to normalize
+ * @returns {string} Absolute URL reachable from other devices
+ */
+export function buildRemoteMediaUrl(hass, urlPath) {
+  if (!isLoopbackOrigin(window.location.origin)) {
+    return buildMediaUrl(urlPath);
+  }
+  const configured = hass?.config?.internal_url || hass?.config?.external_url;
+  if (!configured) {
+    // No better base known - keep the old behavior rather than emit garbage.
+    return buildMediaUrl(urlPath);
+  }
+  const base = configured.replace(/\/+$/, '');
+  if (urlPath.startsWith('http://') || urlPath.startsWith('https://')) {
+    if (!isLoopbackOrigin(urlPath)) return urlPath;
+    try {
+      const u = new URL(urlPath);
+      return base + u.pathname + u.search + u.hash;
+    } catch (_) {
+      return urlPath;
+    }
+  }
+  return urlPath.startsWith('/') ? base + urlPath : `${base}/${urlPath}`;
+}
+
 /**
  * Play an audio URL in the browser using an HTML Audio element.
  *

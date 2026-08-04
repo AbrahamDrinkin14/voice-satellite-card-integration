@@ -1,7 +1,7 @@
 /** Shared notification dispatch, queueing, and playback flow. */
 
 import { CHIME_ANNOUNCE_URL } from '../audio/chime.js';
-import { buildMediaUrl, playMediaUrl } from '../audio/media-playback.js';
+import { buildMediaUrl, buildRemoteMediaUrl, playMediaUrl } from '../audio/media-playback.js';
 import { playRemote } from '../tts/comms.js';
 import { getSelectState } from './satellite-state.js';
 import { BlurReason, Timing } from '../constants.js';
@@ -445,7 +445,12 @@ function _playMediaBrowser(mgr, url, volume, logPrefix, onDone) {
 }
 
 function _playMediaForRemote(mgr, urlPath, ttsTarget, logPrefix, onDone) {
-  const remoteUrl = urlPath.startsWith('media-source://') ? urlPath : buildMediaUrl(urlPath);
+  // The remote speaker fetches non-media-source URLs itself, so they must
+  // resolve against an origin it can reach - not this page's, which under
+  // Kiosk Satellite is an in-app loopback proxy (issue #121).
+  const remoteUrl = urlPath.startsWith('media-source://')
+    ? urlPath
+    : buildRemoteMediaUrl(mgr.card.hass, urlPath);
 
   // In 'normal_playback' mode, snapshot the remote's current media via
   // TtsManager before this play_media clobbers it. The eventual done chime

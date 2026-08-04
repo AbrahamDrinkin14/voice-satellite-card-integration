@@ -1,7 +1,7 @@
 /** Timer UI bridge: pills, ticking, and finished-alert lifecycle. */
 
 import { playChime, CHIME_ALERT, getChimeDuration } from '../audio/chime.js';
-import { buildMediaUrl, playMediaUrl } from '../audio/media-playback.js';
+import { buildMediaUrl, buildRemoteMediaUrl, playMediaUrl } from '../audio/media-playback.js';
 import { playRemote, stopRemote } from '../tts/comms.js';
 import { getSelectState } from '../shared/satellite-state.js';
 import { BlurReason, DEFAULT_CONFIG, Timing } from '../constants.js';
@@ -342,7 +342,11 @@ async function playTimerTtsMedia(mgr, token, media) {
         'announcement',
       );
       const announce = mode !== 'normal_playback';
-      await playRemote(card, media.mediaId || url, { announce }).catch((e) => {
+      // `url` above stays page-origin-relative for the local duration probe;
+      // the remote speaker needs a URL reachable from its side of the
+      // network, not this page's Kiosk Satellite loopback proxy (issue #121).
+      const remoteMediaId = media.mediaId || buildRemoteMediaUrl(card.hass, media.url);
+      await playRemote(card, remoteMediaId, { announce }).catch((e) => {
         mgr.log.error('timer', `Timer TTS remote playback failed: ${e?.message || e}`);
       });
       _timerTtsRemoteActive = true;

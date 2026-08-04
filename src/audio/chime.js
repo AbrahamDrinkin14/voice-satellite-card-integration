@@ -17,7 +17,7 @@
  *     speakers that don't honor the announce flag.
  */
 
-import { buildMediaUrl } from './media-playback.js';
+import { buildMediaUrl, buildRemoteMediaUrl } from './media-playback.js';
 import { getSelectState } from '../shared/satellite-state.js';
 import { supportsNativeSound, playNativeSound, prefetchNativeSound } from '../kiosk/index.js';
 
@@ -143,7 +143,9 @@ export function getChimeDuration(chime) {
 function playChimeRemote(card, url, log, { announce = true } = {}) {
   const entityId = card.ttsTarget;
   if (!entityId || !card.hass) return;
-  const fullUrl = buildMediaUrl(url);
+  // Remote speakers fetch this URL themselves - it must be reachable from
+  // their side of the network, not just from this device (issue #121).
+  const fullUrl = buildRemoteMediaUrl(card.hass, url);
   log?.log('chime', `Playing chime on remote: ${entityId} announce=${announce}`);
   card.hass.callService('media_player', 'play_media', {
     entity_id: entityId,
