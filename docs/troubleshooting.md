@@ -61,7 +61,9 @@ Failures and warnings render at the top of the panel with specific remediation f
 3. If **using Kiosk Satellite** (Android), audio autoplay is allowed out of the box - if TTS is still silent, update the app and reload the page (pull down to refresh).
 4. If **using Fully Kiosk** (Android), ensure that **Web Content Settings** -> **Autoplay Audio** is enabled.
 5. If **using Kiosker Pro** (iOS), ensure inline media playback / autoplay is enabled in **Settings** so TTS audio can play without a tap.
-5. The **Home Assistant Companion App** may block audio autoplay by default, ensure that **Settings** -> **Companion App** -> **Other settings** -> **Autoplay videos** is enabled.
+6. The **Home Assistant Companion App** may block audio autoplay by default:
+   - **Android:** ensure that **Settings** -> **Companion App** -> **Other settings** -> **Autoplay videos** is enabled.
+   - **iOS:** there is no "Autoplay videos" option. Instead, go to **Settings** -> **Companion App** -> **Debugging** -> **WKWebView Media Playback** and make sure both **Audio** and **Video** are **unchecked**. A checked box makes iOS require a screen tap before that media type can play.
 
 Without these settings, Voice Satellite will still function (wake word detection, speech-to-text, and visual feedback all work normally) but TTS audio won't play. The UI will clean up gracefully after the interaction completes.
 

@@ -84,7 +84,7 @@ Voice Satellite requires microphone access, so make sure that:
 
 On Android, the recommended kiosk app is [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite): microphone access and audio autoplay are handled by the app out of the box, and wake word detection runs natively. For other kiosk setups like [Fully Kiosk Browser](https://play.google.com/store/apps/details?id=de.ozerov.fully) (Android) or [Kiosker Pro](https://kiosker.io) (iOS), make sure to enable microphone permissions and use the screensaver feature (not screen off) to keep the microphone active while dimming the display.
 
-For the **Home Assistant Companion App**, enable **Autoplay videos** in Settings -> Companion App -> Other settings. Without this, the WebView will block TTS audio playback.
+For the **Home Assistant Companion App** on **Android**, enable **Autoplay videos** in Settings -> Companion App -> Other settings. On **iOS**, go to Settings -> Companion App -> Debugging -> **WKWebView Media Playback** and make sure both **Audio** and **Video** are **unchecked**. Without these settings, the WebView will block TTS audio playback.
 
 ## Installation
 

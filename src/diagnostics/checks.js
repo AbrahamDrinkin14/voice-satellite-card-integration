@@ -85,22 +85,44 @@ function detectPlatform() {
   const kioskPlatform = kiosk.platform();
   if (kioskPlatform) return kioskPlatform; // 'fullykiosk' | 'kiosker' | 'kiosksatellite'
   const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
-  if (/Home Assistant\//.test(ua) || /HomeAssistant\//.test(ua)) return 'companion';
+  if (/Home Assistant\//.test(ua) || /HomeAssistant\//.test(ua)) {
+    return isIOS() ? 'companion-ios' : 'companion';
+  }
   return 'browser';
 }
 
 /**
- * The HA Companion App's "Autoplay videos" toggle controls BOTH media
- * element playback AND microphone capture, so several checks point at
- * the same Companion-App setting. Fully Kiosk splits those into two
- * Web Content Settings toggles. Plain browsers route through site
- * settings (and for mic, a permission prompt triggered by a gesture).
+ * iPadOS 13+ reports a desktop Macintosh UA, so a plain iPhone|iPad
+ * match misses iPads; a Macintosh UA with multitouch can only be an
+ * iPad in practice.
+ */
+function isIOS() {
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  if (/iPhone|iPad|iPod/.test(ua)) return true;
+  return /Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1;
+}
+
+/**
+ * The Android Companion App's "Autoplay videos" toggle controls BOTH
+ * media element playback AND microphone capture, so several checks
+ * point at the same Companion-App setting. The iOS Companion App has
+ * no such toggle: playback is gated by the WKWebView Media Playback
+ * checkboxes under Debugging, which must be UNCHECKED (checked means
+ * that media type requires a user gesture before it can play). Fully
+ * Kiosk splits audio and mic into two Web Content Settings toggles.
+ * Plain browsers route through site settings (and for mic, a
+ * permission prompt triggered by a gesture).
  */
 const PLATFORM_FIX = {
   companion: {
     audio: 'Open the Home Assistant Companion app → Settings → Companion App → enable "Autoplay videos". This single toggle controls both audio playback and microphone capture.',
     micPrompt: 'Open the Home Assistant Companion app → Settings → Companion App → enable "Autoplay videos". This single toggle grants both microphone access and audio playback.',
     micDenied: 'Home Assistant Companion app → Settings → Companion App → enable "Autoplay videos". Also confirm the Android app permissions for Home Assistant include Microphone.',
+  },
+  'companion-ios': {
+    audio: 'Open the Home Assistant Companion app → Settings → Companion App → Debugging → WKWebView Media Playback and make sure both "Audio" and "Video" are UNCHECKED. A checked box makes iOS require a screen tap before that media type can play.',
+    micPrompt: 'Tap the start button once so the app can request microphone access, and confirm iOS Settings → Apps → Home Assistant → Microphone is enabled.',
+    micDenied: 'Enable iOS Settings → Apps → Home Assistant → Microphone, then reload the page.',
   },
   fullykiosk: {
     audio: 'Fully Kiosk → Web Content Settings → enable "Autoplay Audio". Also make sure "Enable JavaScript Interface" is on if you use the screensaver.',
@@ -621,7 +643,15 @@ export const CLIENT_CHECKS = [
     category: CATEGORY.PLATFORM,
     title: 'Home Assistant Companion autoplay',
     run: async () => {
-      if (detectPlatform() !== 'companion') return { status: 'skip' };
+      const platform = detectPlatform();
+      if (platform === 'companion-ios') {
+        return {
+          status: 'info',
+          detail: 'Running in the Home Assistant Companion App on iOS.',
+          remediation: 'If chimes or TTS do not play, open Settings → Companion App → Debugging → WKWebView Media Playback and make sure both "Audio" and "Video" are UNCHECKED.',
+        };
+      }
+      if (platform !== 'companion') return { status: 'skip' };
       return {
         status: 'info',
         detail: 'Running in the Home Assistant Companion App.',
