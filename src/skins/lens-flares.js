@@ -336,10 +336,11 @@ function setup() {
     if (newW !== drawW || newH !== drawH) {
       drawW = newW;
       drawH = newH;
+      // Bitmap size only — CSS keeps the element at 100% of the wrapper.
+      // Inline px sizing here breaks under an ancestor CSS zoom (rect is in
+      // post-zoom pixels, inline styles are pre-zoom), shrinking the canvas.
       canvas.width = drawW;
       canvas.height = drawH;
-      canvas.style.width = rect.width + 'px';
-      canvas.style.height = rect.height + 'px';
       sceneCanvas.width = drawW;
       sceneCanvas.height = drawH;
       buildSpecs();

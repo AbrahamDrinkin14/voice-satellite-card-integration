@@ -295,10 +295,11 @@ function setup() {
     const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     drawW = rect.width;
     drawH = rect.height;
+    // Bitmap size only — CSS keeps the element at 100% of the wrapper.
+    // Inline px sizing here breaks under an ancestor CSS zoom (rect is in
+    // post-zoom pixels, inline styles are pre-zoom), shrinking the canvas.
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
-    canvas.style.width = rect.width + 'px';
-    canvas.style.height = rect.height + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     // Glow canvas at half resolution
     glowCanvas.width = Math.round(rect.width * dpr * 0.5);

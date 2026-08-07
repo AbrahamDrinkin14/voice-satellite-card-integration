@@ -168,7 +168,10 @@
   right: 0;
   top: 50%;
   transform: translateY(-50%);
-  height: 55vh;
+  /* Percentage, not vh: on a fixed element it resolves against the
+     zoom-compensated containing block, so the band keeps its intended
+     size when the embedding app zooms the page (kiosk-satellite #147). */
+  height: 55%;
   z-index: 10000;
   pointer-events: none;
   opacity: 0;

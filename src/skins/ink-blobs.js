@@ -522,10 +522,11 @@ function setup() {
     if (!rect.width || !rect.height || !glReady) { drawW = 0; drawH = 0; return; }
     drawW = rect.width;
     drawH = rect.height;
+    // Bitmap size only — CSS keeps the element at 100% of the wrapper.
+    // Inline px sizing here breaks under an ancestor CSS zoom (rect is in
+    // post-zoom pixels, inline styles are pre-zoom), shrinking the canvas.
     canvas.width = Math.max(1, Math.round(rect.width * CANVAS_SCALE));
     canvas.height = Math.max(1, Math.round(rect.height * CANVAS_SCALE));
-    canvas.style.width = rect.width + 'px';
-    canvas.style.height = rect.height + 'px';
     setupFBOs();
   }
 
