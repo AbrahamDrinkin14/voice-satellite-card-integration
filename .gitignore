@@ -1,7 +1,7 @@
 # Claude
 .claude/
 .remember/
-
+.playwright-mcp/
 
 # Node
 node_modules/
