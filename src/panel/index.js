@@ -39,6 +39,7 @@ import { DiagnosticsManager } from '../diagnostics';
 import * as kiosk from '../kiosk/index.js';
 import { buildMarkdownReport } from '../diagnostics/report.js';
 import { exportLogBufferText } from '../logger.js';
+import { redactText } from '../shared/redact.js';
 import { getAudioInputDeviceOptions } from '../audio/devices.js';
 
 const P = 'vsp';
@@ -2252,7 +2253,10 @@ class VoiceSatellitePanel extends HTMLElement {
       exportLogBufferText(),
       '```',
     ];
-    await this._copyText(lines.join('\n'), copy, 'Copied logs');
+    // Logs are copied to be pasted into GitHub issues: strip hostnames
+    // and signed-URL tokens from every URL in the dump (#127). The live
+    // console keeps the full URLs for real-time debugging.
+    await this._copyText(redactText(lines.join('\n')), copy, 'Copied logs');
   }
 
   async _copyText(text, button, copiedLabel) {

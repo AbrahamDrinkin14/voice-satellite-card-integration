@@ -6,6 +6,7 @@
  */
 
 import { VERSION } from '../constants.js';
+import { redactText } from '../shared/redact.js';
 
 const STATUS_ICON = {
   pass: 'OK',
@@ -42,7 +43,10 @@ export function buildMarkdownReport(report) {
     }
     lines.push('');
   }
-  return lines.join('\n');
+  // Blanket pass over the assembled report: check details can embed
+  // absolute URLs (including ones produced by an older server-side
+  // diagnostics module), and none of them belong in a GitHub issue (#127).
+  return redactText(lines.join('\n'));
 }
 
 function groupBy(arr, keyFn) {
