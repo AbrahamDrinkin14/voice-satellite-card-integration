@@ -8,9 +8,20 @@
  */
 
 import { openDiagnostics, toastTitle, toastDetail } from './index.js';
+import { promoteToTopLayer } from '../shared/top-layer.js';
 
 const HOST_ID = 'voice-satellite-toast';
 const HOST_KEY = '__vsToastHost';
+
+/**
+ * Re-front the toast host in the browser top layer so toasts paint above
+ * other promoted overlays (the screensaver calls this right after
+ * promoting itself). No-op when the host is not mounted or the Popover
+ * API is unavailable.
+ */
+export function bringToastHostToFront() {
+  promoteToTopLayer(document.getElementById(HOST_ID));
+}
 
 /**
  * Mount the overlay toast once per page and hook it up to the session's
@@ -106,6 +117,10 @@ function _render(host, toast, session) {
 
   host.appendChild(el);
 
+  // A toast must outrank everything, including a screensaver that
+  // promoted itself to the top layer after our last promotion.
+  bringToastHostToFront();
+
   // Next frame: enter animation.
   requestAnimationFrame(() => el.classList.add('is-visible'));
 }
@@ -126,6 +141,17 @@ function _injectStyles() {
       z-index: 2147483000;
       padding: 0 16px;
       box-sizing: border-box;
+      /* The host is promoted to a [popover] so toasts can paint above
+         top-layer overlays like the screensaver (#126); undo the UA
+         popover styles (inset 0, fit-content sizing, margin auto,
+         border, canvas background) that would break this layout. */
+      top: auto;
+      margin: 0;
+      border: 0;
+      width: auto;
+      height: auto;
+      background: transparent;
+      overflow: visible;
     }
     /* Sized for wall-mounted tablet viewing distance (a few feet away).
        Font sizes and the close button tap target are deliberately larger

@@ -32,6 +32,8 @@
 import { INTERACTING_STATES, State } from '../constants.js';
 import { getSwitchState } from '../shared/satellite-state.js';
 import { cameraSupportsWebrtc, attachCameraWebrtc } from '../shared/camera-webrtc.js';
+import { promoteToTopLayer, demoteFromTopLayer } from '../shared/top-layer.js';
+import { bringToastHostToFront } from '../toast/overlay-ui.js';
 import * as kiosk from '../kiosk/index.js';
 
 const OVERLAY_ID = 'voice-satellite-screensaver';
@@ -452,6 +454,15 @@ export class ScreensaverManager {
     this._active = true;
     this._ensureOverlay();
 
+    // Join the browser top layer so popover-based menus (ha-dropdown
+    // and friends) cannot paint on top of the screensaver (#126), then
+    // re-front the toast host so toasts (e.g. the persistent mic-mute
+    // warning) keep painting above us. Must happen before the render
+    // calls below: a closed popover is display:none, so anything that
+    // measures layout during render would see a 0x0 box.
+    promoteToTopLayer(this._overlay);
+    bringToastHostToFront();
+
     // Dim the hardware backlight (kiosk browsers only) before rendering
     // content — applies to all screensaver types, using the user's
     // configured brightness.  0% = fully dim (black overlay default),
@@ -498,7 +509,9 @@ export class ScreensaverManager {
 
     if (this._overlay) {
       this._overlay.classList.remove('vs-screensaver-visible');
-      // Clear content after fade completes so next activation gets fresh DOM
+      // Clear content after fade completes so next activation gets fresh
+      // DOM, and leave the top layer only once the fade is done -- hiding
+      // the popover earlier would cut the fade-out short.
       setTimeout(() => {
         if (!this._active) {
           if (this._contentEl) this._contentEl.innerHTML = '';
@@ -506,6 +519,7 @@ export class ScreensaverManager {
             this._smallClockWrap.remove();
             this._smallClockWrap = null;
           }
+          if (this._overlay) demoteFromTopLayer(this._overlay);
         }
       }, FADE_MS + 50);
     }
@@ -1327,7 +1341,15 @@ export class ScreensaverManager {
         // Longhand offsets: `inset` needs Chromium 87+, and old kiosk
         // WebViews otherwise collapse the overlay to a 0x0 box (#94).
         '  top: 0; left: 0; right: 0; bottom: 0;',
-        '  z-index: 999999;',
+        // Fallback for engines without the Popover API; kept just below
+        // the toast host (2147483000) so toasts stay visible (#126).
+        '  z-index: 2147482000;',
+        // The overlay is promoted to a [popover] on activation; undo the
+        // UA popover styles (fit-content sizing, margin auto, border,
+        // padding, canvas background) so it still covers the viewport.
+        '  margin: 0; border: 0; padding: 0;',
+        '  width: 100%; height: 100%;',
+        '  background: transparent;',
         '  opacity: 0;',
         `  transition: opacity ${FADE_MS}ms ease;`,
         '  pointer-events: none;',
