@@ -16,6 +16,7 @@ import { State, INTERACTING_STATES, BlurReason, Timing } from '../constants.js';
 import { getSelectState } from '../shared/satellite-state.js';
 import { resumeNativeWake } from '../wake-word/native-handoff.js';
 import { subscribePipelineRun, setupReconnectListener } from './comms.js';
+import { subscribeKioskPipelineRun, nativePipelinePreferred } from './kiosk-transport.js';
 import {
   handleRunStart,
   handleWakeWordStart,
@@ -195,11 +196,39 @@ export class PipelineManager {
     }
     const isTextInput = !!opts.intent_input;
 
+    // Delegated transport (Kiosk Satellite): the run must live on the same
+    // side as its audio, and audio decides delegation when the mic opens -
+    // so bring the mic up first and read its answer. Text-input runs carry
+    // no audio but still ride the app's connection when delegation is on:
+    // the backend displaces an active run started from a different
+    // connection, so a show arriving mid-turn on the dashboard connection
+    // would tear the delegated turn down as "another browser".
+    let useKiosk = false;
+    if (nativePipelinePreferred(this._card)) {
+      if (isTextInput) {
+        useKiosk = true;
+      } else {
+        const { audio } = this._card;
+        if (!audio._mediaStream) {
+          this._log.log('pipeline', 'Native pipeline preferred - bringing the mic up first');
+          await audio.startMicrophone('stt');
+          if (this._pipelineGen !== gen) {
+            this._log.log('pipeline', 'Aborting stale start() after mic acquire - pipeline was stopped');
+            return;
+          }
+        }
+        useKiosk = audio.isDelegated;
+      }
+    }
+
     // Reset run-start tracking - used to detect stale run-end events
     this._runStartReceived = false;
     this._startStage = runConfig.start_stage;
 
-    this._log.log('pipeline', `Starting pipeline: ${JSON.stringify(runConfig)}`);
+    this._log.log(
+      'pipeline',
+      `Starting pipeline${useKiosk ? ' (native transport)' : ''}: ${JSON.stringify(runConfig)}`,
+    );
 
     // Wait for the init event (which carries the binary handler ID) before
     // starting audio.  subscribeMessage resolves on the WS "result" message,
@@ -208,25 +237,51 @@ export class PipelineManager {
     const initPromise = new Promise((resolve) => { resolveInit = resolve; });
     this._cancelInit = resolveInit;
 
-    const unsub = await subscribePipelineRun(
-      connection,
-      config.satellite_entity,
-      runConfig,
-      (message) => {
-        // Stale subscription - a newer stop()/start() cycle superseded us
-        if (this._pipelineGen !== gen) return;
+    const onRunMessage = (message) => {
+      // Stale subscription - a newer stop()/start() cycle superseded us
+      if (this._pipelineGen !== gen) return;
 
-        // Synthetic init event carries the WS binary handler ID
-        if (message.type === 'init') {
-          this._binaryHandlerId = message.handler_id;
-          this._log.log('pipeline', `Init - handler ID: ${message.handler_id}`);
-          resolveInit();
-          return;
+      // Synthetic init event carries the WS binary handler ID
+      if (message.type === 'init') {
+        this._binaryHandlerId = message.handler_id;
+        this._log.log('pipeline', `Init - handler ID: ${message.handler_id}`);
+        resolveInit();
+        return;
+      }
+
+      this._card.onPipelineMessage(message);
+    };
+
+    let unsub = null;
+    if (useKiosk) {
+      unsub = await subscribeKioskPipelineRun(
+        this._card,
+        config.satellite_entity,
+        runConfig,
+        onRunMessage,
+        () => this._onKioskTransportClosed(gen),
+      );
+      if (!unsub) {
+        // The mic went delegated but the run could not (HA unreachable from
+        // the app, or its setting flipped between mic-open and subscribe).
+        // A dashboard-connection run cannot reach audio living in the app's
+        // buffer: latch delegation off for this page load, put the mic back
+        // on the page path, and run on the dashboard connection.
+        this._log.error('pipeline', 'Kiosk pipeline subscribe failed - falling back to browser transport');
+        this._card._ksPipelineBroken = true;
+        if (!isTextInput) {
+          try { this._card.audio.stopMicrophone(); } catch (_) { /* reacquired below */ }
         }
-
-        this._card.onPipelineMessage(message);
-      },
-    );
+      }
+    }
+    if (!unsub) {
+      unsub = await subscribePipelineRun(
+        connection,
+        config.satellite_entity,
+        runConfig,
+        onRunMessage,
+      );
+    }
     if (this._pipelineGen !== gen) {
       this._log.log('pipeline', 'Aborting stale start() after subscribe - pipeline was stopped');
       try { unsub(); } catch (_) { /* cleanup */ }
@@ -326,6 +381,19 @@ export class PipelineManager {
     }
 
     this._isRestarting = false;
+  }
+
+  /**
+   * The app's websocket died with our delegated run on it. Subscriptions
+   * cannot be resumed; recover exactly like the dashboard-socket reconnect
+   * handler does - reset retry state, restart after the standard delay.
+   */
+  _onKioskTransportClosed(gen) {
+    if (this._pipelineGen !== gen) return;
+    this._log.log('pipeline', 'Kiosk pipeline transport died - restarting');
+    this._card.audio.stopSending();
+    this.resetRetryState();
+    this.restart(Timing.RECONNECT_DELAY);
   }
 
   restart(delay) {

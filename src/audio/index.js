@@ -9,6 +9,7 @@ import { setupAudioWorklet, sendAudioBuffer } from './processing.js';
 import { resolveDspForMode } from './dsp-config.js';
 import { describeAudioInputDevices, describeSelectedAudioTrack } from './devices.js';
 import * as kiosk from '../kiosk/index.js';
+import { nativePipelinePreferred } from '../pipeline/kiosk-transport.js';
 
 const TARGET_SAMPLE_RATE = 16000;
 
@@ -43,7 +44,15 @@ export class AudioManager {
     // so a stream swap (switchMicMode) can re-apply it to the new tracks
     // without racing the wake-word handler's synchronous mute call.
     this._micTracksMuted = false;
+    // Kiosk Satellite runs the pipeline transport natively: the mic audio
+    // lives in the app, the page only gets levels. Set when
+    // _startDelegatedMicrophone succeeds; PipelineManager reads it to put
+    // the run's subscription on the same side as its audio.
+    this._delegated = false;
   }
+
+  /** True while the app owns the turn's audio (delegated pipeline). */
+  get isDelegated() { return this._delegated; }
 
   /** Read-only — true while all mic tracks should be silent. */
   get micTracksMuted() { return this._micTracksMuted; }
@@ -64,6 +73,13 @@ export class AudioManager {
     if (this._mediaStream) {
       this._mediaStream.getAudioTracks().forEach((t) => { t.enabled = !this._micTracksMuted; });
     }
+    // Delegated pipeline: the chunks live in the app, so the drop-on-arrival
+    // enforcement does too. Forwarded whenever delegation is in play - the
+    // wake path mutes BEFORE the mic opens, and the app latches the flag
+    // across the open so the chime window is covered from the first chunk.
+    if (this._delegated || nativePipelinePreferred(this._card)) {
+      kiosk.pipelineSetMuted(this._micTracksMuted);
+    }
   }
   get card() { return this._card; }
   get log() { return this._log; }
@@ -72,7 +88,14 @@ export class AudioManager {
   get workletNode() { return this._workletNode; }
   set workletNode(val) { this._workletNode = val; }
   get audioBuffer() { return this._audioBuffer; }
-  set audioBuffer(val) { this._audioBuffer = val; }
+  set audioBuffer(val) {
+    this._audioBuffer = val || [];
+    // Callers clear stale audio by assigning [] (the post-chime unmute, the
+    // pre-send discard). Under delegation the real buffer is the app's.
+    if (this._delegated && this._audioBuffer.length === 0) {
+      kiosk.pipelineClearBuffer();
+    }
+  }
   get actualSampleRate() { return this._actualSampleRate; }
   get currentMicMode() { return this._currentMicMode || 'wake_word'; }
   /**
@@ -93,6 +116,15 @@ export class AudioManager {
     // reactive bar reads per-chunk levels (analyser.pushMicPcm), so weak
     // hardware carries no audio graph for the whole turn.
     if (this._card._nativeWakeActive && kiosk.supportsAudioStream()) {
+      // Delegated pipeline first: the audio never enters the page at all.
+      // On refusal (setting off, engine down, older app) fall through to
+      // the chunk stream so the turn still happens - and latch delegation
+      // off for this page load so the transport choice stays consistent.
+      if (nativePipelinePreferred(this._card)) {
+        if (await this._startDelegatedMicrophone(mode)) return;
+        this._card._ksPipelineBroken = true;
+        this._log.log('mic', 'Delegated pipeline mic unavailable - using the page audio stream');
+      }
       await this._startKioskMicrophone(mode);
       return;
     }
@@ -138,6 +170,46 @@ export class AudioManager {
 
     await setupAudioWorklet(this, this._sourceNode);
     this._log.log('mic', 'Audio capture via AudioWorklet');
+  }
+
+  /**
+   * Acquire the mic for a DELEGATED pipeline run: the app opens its capture
+   * into its own buffer and uploads it natively; the page receives only a
+   * per-chunk speech level for the reactive bar. Everything the kiosk
+   * chunk-stream path did on arriving PCM (mute enforcement, buffer gating)
+   * happens in the app with the same semantics.
+   *
+   * @param {'wake_word' | 'stt'} mode
+   * @returns {Promise<boolean>} false when the app declined (no throw: the
+   *   caller falls back to the chunk stream)
+   */
+  async _startDelegatedMicrophone(mode) {
+    const res = await kiosk.pipelineOpenMic();
+    if (!res) return false;
+    this._currentMicMode = mode;
+    this._actualSampleRate = TARGET_SAMPLE_RATE;
+    if (this._card.isReactiveBarEnabled) {
+      this._card.analyser.attachExternalMic();
+    }
+    kiosk.bindPipelineLevel((level) => {
+      // The app already zeroes levels while muted; this is parity with the
+      // chunk path's own guard, and covers a mute the app has not heard yet.
+      if (this._micTracksMuted) {
+        this._card.analyser.setExternalLevel(0);
+        return;
+      }
+      this._card.analyser.pushExternalMicLevel(level);
+    });
+    // Delegation decided after a mute may already be latched (the wake path
+    // mutes before the mic opens) - re-assert so the app agrees.
+    kiosk.pipelineSetMuted(this._micTracksMuted);
+    this._delegated = true;
+    this._mediaStream = KIOSK_MEDIA_STREAM;
+    this._log.log(
+      'mic',
+      `Audio capture delegated to Kiosk Satellite (native pipeline, ${res.sampleRate}Hz, no PCM in the page)`,
+    );
+    return true;
   }
 
   /**
@@ -313,6 +385,20 @@ export class AudioManager {
     const hadWorklet = !!this._workletNode;
     const hadStream = !!this._mediaStream;
     this.stopSending();
+    // Delegated pipeline capture: close the app-side mic and level feed.
+    // Checked before the KIOSK_MEDIA_STREAM branch - both modes park that
+    // sentinel in _mediaStream, only this one owns app-side audio state.
+    if (this._delegated) {
+      kiosk.unbindPipelineLevel();
+      kiosk.pipelineCloseMic();
+      this._card.analyser.detachExternal();
+      this._delegated = false;
+      this._mediaStream = null;
+      this._captureBuffering = false;
+      this._audioBuffer = [];
+      this._log.log('mic', 'stopMicrophone: released the delegated pipeline capture');
+      return;
+    }
     // Kiosk Satellite source: hand the mic back to the app so it can re-arm
     // native wake-word detection. There is no worklet/stream to tear down.
     if (this._mediaStream === KIOSK_MEDIA_STREAM) {
@@ -380,6 +466,13 @@ export class AudioManager {
     this.stopSending();
     this._captureBuffering = false;
     this._sendSessionCount += 1;
+    // Delegated pipeline: the app owns the buffer, the handler ID and the
+    // socket; it drains buffered chunks first, exactly like the loop below.
+    if (this._delegated) {
+      this._log.log('mic', 'Audio send delegated to Kiosk Satellite (native upload)');
+      kiosk.pipelineStartSending();
+      return;
+    }
     const sendSession = this._sendSessionCount;
     let firstSendLogged = false;
     this._sendInterval = setInterval(() => {
@@ -398,16 +491,26 @@ export class AudioManager {
       clearInterval(this._sendInterval);
       this._sendInterval = null;
     }
+    if (this._delegated) kiosk.pipelineStopSending();
   }
 
   startBuffering({ reset = false } = {}) {
     if (reset) this._audioBuffer = [];
     this._captureBuffering = true;
+    // Forwarded whenever delegation is in play, not just once the mic is
+    // up: the seamless wake path arms buffering BEFORE the mic opens, and
+    // the app applies the flag to the pre-roll it flushes at open.
+    if (this._delegated || nativePipelinePreferred(this._card)) {
+      kiosk.pipelineStartBuffering({ reset });
+    }
   }
 
   stopBuffering({ clear = false } = {}) {
     this._captureBuffering = false;
     if (clear) this._audioBuffer = [];
+    if (this._delegated || nativePipelinePreferred(this._card)) {
+      kiosk.pipelineStopBuffering({ clear });
+    }
   }
 
   async _logMicDevices(reason) {

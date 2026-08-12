@@ -694,6 +694,163 @@ export function unbindAudioStream() {
   }
 }
 
+// ── Delegated pipeline (Kiosk Satellite only) ──────────────────────────
+//
+// One step past the delegated mic: the app runs the pipeline TRANSPORT
+// itself. It subscribes voice_satellite/run_pipeline on its own
+// authenticated HA websocket, uploads mic PCM as binary frames natively,
+// and forwards every subscription event into the page. During a delegated
+// turn no audio crosses the JS bridge in either direction - the page keeps
+// the session policy and the UI, and gets a per-chunk speech level for the
+// reactive bar instead of the chunks themselves. The audio methods mirror
+// AudioManager's own send/buffer/mute calls one-to-one, so the turn
+// choreography (chime mute window, dedupe, seamless buffering) is
+// unchanged; only where the audio lives moved.
+
+/** True when the host can run the pipeline transport natively. */
+export function supportsNativePipeline() {
+  return ksPresent()
+    && typeof window.kioskSatellite.pipelineRun === 'function';
+}
+
+/**
+ * Subscribe a run on the app's websocket. Resolves `{runId}` or null (the
+ * app's Native voice pipeline setting is off, HA is unreachable from the
+ * app, or the app predates the feature). Events arrive via
+ * [onPipelineEvent], filtered by `runId`.
+ */
+export async function pipelineRun(params) {
+  if (!supportsNativePipeline()) return null;
+  try {
+    const res = await window.kioskSatellite.pipelineRun(params);
+    return res && res.runId ? res : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Unsubscribe a delegated run and stop its audio upload. */
+export async function pipelineStop(runId) {
+  if (!ksPresent()) return false;
+  try {
+    await window.kioskSatellite.pipelineStop(runId);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Open the delegated capture: mic chunks flow into the app-side buffer
+ * (pre-roll first) and speech levels arrive via [bindPipelineLevel].
+ * Resolves `{sampleRate}` or null.
+ */
+export async function pipelineOpenMic() {
+  if (!supportsNativePipeline()) return null;
+  try {
+    const res = await window.kioskSatellite.pipelineOpenMic();
+    return res && res.sampleRate ? res : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Close the delegated capture and drop buffered audio. */
+export async function pipelineCloseMic() {
+  if (!ksPresent()) return false;
+  try {
+    await window.kioskSatellite.pipelineCloseMic();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Mute (drop, never buffer) the delegated capture - the chime window. */
+export function pipelineSetMuted(muted) {
+  if (!ksPresent() || typeof window.kioskSatellite.pipelineSetMuted !== 'function') return;
+  window.kioskSatellite.pipelineSetMuted(!!muted).catch(() => {});
+}
+
+/** Buffer chunks before sending starts (the seamless one-shot window). */
+export function pipelineStartBuffering(opts) {
+  if (!ksPresent() || typeof window.kioskSatellite.pipelineStartBuffering !== 'function') return;
+  window.kioskSatellite.pipelineStartBuffering(opts || {}).catch(() => {});
+}
+
+/** Stop buffering; `{clear: true}` drops what was buffered. */
+export function pipelineStopBuffering(opts) {
+  if (!ksPresent() || typeof window.kioskSatellite.pipelineStopBuffering !== 'function') return;
+  window.kioskSatellite.pipelineStopBuffering(opts || {}).catch(() => {});
+}
+
+/** Drop the app-side audio buffer (stale chime-window audio). */
+export function pipelineClearBuffer() {
+  if (!ksPresent() || typeof window.kioskSatellite.pipelineClearBuffer !== 'function') return;
+  window.kioskSatellite.pipelineClearBuffer().catch(() => {});
+}
+
+/** Start the native upload: buffered chunks first, then live. */
+export function pipelineStartSending(runId) {
+  if (!ksPresent() || typeof window.kioskSatellite.pipelineStartSending !== 'function') return;
+  window.kioskSatellite.pipelineStartSending(runId).catch(() => {});
+}
+
+/** Pause the native upload (the chime window does this). */
+export function pipelineStopSending() {
+  if (!ksPresent() || typeof window.kioskSatellite.pipelineStopSending !== 'function') return;
+  window.kioskSatellite.pipelineStopSending().catch(() => {});
+}
+
+/**
+ * Listen for delegated pipeline events (`{runId, message}`). Unlike the
+ * single-handler bind helpers above this RETURNS A REMOVER and allows
+ * several listeners: a new run's subscription can overlap the old run's
+ * teardown, and the runId filter is what keeps them apart.
+ */
+export function onPipelineEvent(handler) {
+  const h = (e) => {
+    try { handler((e && e.detail) || {}); } catch (_) { /* ignore */ }
+  };
+  window.addEventListener('kiosksatellite:pipeline', h);
+  return () => window.removeEventListener('kiosksatellite:pipeline', h);
+}
+
+/** Listen for delegated transport death (`{runId, reason}`). Returns a remover. */
+export function onPipelineClosed(handler) {
+  const h = (e) => {
+    try { handler((e && e.detail) || {}); } catch (_) { /* ignore */ }
+  };
+  window.addEventListener('kiosksatellite:pipeline-closed', h);
+  return () => window.removeEventListener('kiosksatellite:pipeline-closed', h);
+}
+
+let _ksPipelineLevelHandler = null;
+
+/**
+ * Bind the per-chunk speech-level feed for the reactive bar (`{level}`,
+ * ~15/s while the delegated capture is open). One handler at a time, like
+ * the audio-stream bind it replaces.
+ */
+export function bindPipelineLevel(handler) {
+  if (!ksPresent()) return false;
+  unbindPipelineLevel();
+  _ksPipelineLevelHandler = (e) => {
+    const detail = (e && e.detail) || {};
+    try { handler(Number(detail.level) || 0); } catch (_) { /* ignore */ }
+  };
+  window.addEventListener('kiosksatellite:pipeline-level', _ksPipelineLevelHandler);
+  return true;
+}
+
+/** Unbind the pipeline level handler. */
+export function unbindPipelineLevel() {
+  if (_ksPipelineLevelHandler) {
+    window.removeEventListener('kiosksatellite:pipeline-level', _ksPipelineLevelHandler);
+    _ksPipelineLevelHandler = null;
+  }
+}
+
 // ── Native sound playback (Kiosk Satellite only) ───────────────────────
 //
 // The output half of the audio handoff: the app plays a URL natively, on

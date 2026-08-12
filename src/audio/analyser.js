@@ -318,6 +318,20 @@ export class AnalyserManager {
     this._lastMicPushAt = performance.now();
   }
 
+  /**
+   * One pre-computed level for the DELEGATED PIPELINE (Kiosk Satellite
+   * uploads the audio natively and the page never sees PCM): the app runs
+   * the same band-split speech weighting pushMicPcm applies and hands us
+   * the finished number. Same freshness stamp, so the hold-last-value
+   * decay in the tick loop treats it exactly like a locally computed
+   * chunk level.
+   */
+  pushExternalMicLevel(level) {
+    if (!this._external || !this._externalIsMic) return;
+    this._externalLevel = Number(level) || 0;
+    this._lastMicPushAt = performance.now();
+  }
+
   /** Leave external mode and darken the bar, like _detachAudio does. */
   detachExternal() {
     if (!this._external) return;
