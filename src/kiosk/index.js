@@ -828,16 +828,19 @@ export function onPipelineClosed(handler) {
 let _ksPipelineLevelHandler = null;
 
 /**
- * Bind the per-chunk speech-level feed for the reactive bar (`{level}`,
- * ~15/s while the delegated capture is open). One handler at a time, like
- * the audio-stream bind it replaces.
+ * Bind the speech-level feed for the reactive bar. The app batches a few
+ * chunk levels per event (~4/s) as `{level, levels: [{o, v}]}` — `o` is the
+ * ms offset from the batch's first entry — so the bridge is called a third
+ * as often; the handler receives the whole detail and replays the batch
+ * locally. A bare `{level}` (no batch) is an immediate value, e.g. the
+ * zero a mute forces. One handler at a time, like the audio-stream bind it
+ * replaces.
  */
 export function bindPipelineLevel(handler) {
   if (!ksPresent()) return false;
   unbindPipelineLevel();
   _ksPipelineLevelHandler = (e) => {
-    const detail = (e && e.detail) || {};
-    try { handler(Number(detail.level) || 0); } catch (_) { /* ignore */ }
+    try { handler((e && e.detail) || {}); } catch (_) { /* ignore */ }
   };
   window.addEventListener('kiosksatellite:pipeline-level', _ksPipelineLevelHandler);
   return true;

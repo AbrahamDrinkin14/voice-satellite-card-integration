@@ -191,14 +191,33 @@ export class AudioManager {
     if (this._card.isReactiveBarEnabled) {
       this._card.analyser.attachExternalMic();
     }
-    kiosk.bindPipelineLevel((level) => {
+    kiosk.bindPipelineLevel((detail) => {
       // The app already zeroes levels while muted; this is parity with the
       // chunk path's own guard, and covers a mute the app has not heard yet.
       if (this._micTracksMuted) {
         this._card.analyser.setExternalLevel(0);
         return;
       }
-      this._card.analyser.pushExternalMicLevel(level);
+      const push = (v) => {
+        if (this._micTracksMuted || !this._delegated) return;
+        this._card.analyser.pushExternalMicLevel(Number(v) || 0);
+      };
+      const batch = Array.isArray(detail.levels) && detail.levels.length
+        ? detail.levels : null;
+      if (!batch) {
+        push(detail.level);
+        return;
+      }
+      // Replay the batch at its own chunk cadence (offsets are relative to
+      // the first entry) so the bar moves exactly as it did per-chunk, one
+      // batch window behind live audio - invisible on an ambient bar, and
+      // the hold-last analyser was built for clumpy delivery anyway.
+      const base = Number(batch[0].o) || 0;
+      for (const entry of batch) {
+        const delay = Math.max(0, (Number(entry.o) || 0) - base);
+        if (delay === 0) push(entry.v);
+        else setTimeout(() => push(entry.v), delay);
+      }
     });
     // Delegation decided after a mute may already be latched (the wake path
     // mutes before the mic opens) - re-assert so the app agrees.
