@@ -234,6 +234,11 @@ export async function setupNativeWakeHandoff(session, { force = false } = {}) {
     engine,
     models,
     energyGate,
+    // This build knows the delegated pipeline transport (pipeline/
+    // kiosk-transport.js). Announced here, on the push the app already
+    // receives every page load, so its settings can show whether voice
+    // turns will run natively; an older card simply never sends it.
+    nativePipeline: true,
     ...(stopModel ? { stopModel } : {}),
   });
   if (!available) {
