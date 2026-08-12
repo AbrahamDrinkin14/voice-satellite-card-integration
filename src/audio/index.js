@@ -117,12 +117,14 @@ export class AudioManager {
     // hardware carries no audio graph for the whole turn.
     if (this._card._nativeWakeActive && kiosk.supportsAudioStream()) {
       // Delegated pipeline first: the audio never enters the page at all.
-      // On refusal (setting off, engine down, older app) fall through to
-      // the chunk stream so the turn still happens - and latch delegation
-      // off for this page load so the transport choice stays consistent.
+      // On refusal (kill switch off, engine down, older app) fall through
+      // to the chunk stream so the turn still happens. Deliberately NOT
+      // latched: an open refusal is app-local and often transient (the
+      // engine's crash self-heal brings it back within seconds), no
+      // transport mismatch exists because nothing subscribed yet, and the
+      // next turn should simply ask again.
       if (nativePipelinePreferred(this._card)) {
         if (await this._startDelegatedMicrophone(mode)) return;
-        this._card._ksPipelineBroken = true;
         this._log.log('mic', 'Delegated pipeline mic unavailable - using the page audio stream');
       }
       await this._startKioskMicrophone(mode);

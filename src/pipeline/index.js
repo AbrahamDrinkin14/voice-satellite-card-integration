@@ -265,10 +265,21 @@ export class PipelineManager {
         // The mic went delegated but the run could not (HA unreachable from
         // the app, or its setting flipped between mic-open and subscribe).
         // A dashboard-connection run cannot reach audio living in the app's
-        // buffer: latch delegation off for this page load, put the mic back
-        // on the page path, and run on the dashboard connection.
-        this._log.error('pipeline', 'Kiosk pipeline subscribe failed - falling back to browser transport');
-        this._card._ksPipelineBroken = true;
+        // buffer: put the mic back on the page path and run on the dashboard
+        // connection. Latch delegation off for this page load ONLY when the
+        // dashboard's own socket is alive - that asymmetry (the page reaches
+        // HA, the app does not) is what the latch exists for, and it will
+        // not fix itself. When HA is unreachable from everywhere (restart,
+        // network drop) the browser attempt below fails identically, the
+        // normal retry cycle takes over, and the next turn after HA returns
+        // must try delegation again rather than stay downgraded for the
+        // rest of the page's life.
+        const pageAlive = connection?.socket?.readyState === WebSocket.OPEN;
+        this._log.error(
+          'pipeline',
+          `Kiosk pipeline subscribe failed - falling back to browser transport${pageAlive ? '' : ' (HA unreachable from the page too - not latching delegation off)'}`,
+        );
+        if (pageAlive) this._card._ksPipelineBroken = true;
         if (!isTextInput) {
           try { this._card.audio.stopMicrophone(); } catch (_) { /* reacquired below */ }
         }
