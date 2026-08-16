@@ -1011,6 +1011,7 @@ export class WakeWordManager {
       clearTimeout(session._imageLingerTimeout);
       session._imageLingerTimeout = null;
     }
+    session._mediaLingerDismiss = null;
 
     session.chat.clear();
     session.pipeline.shouldContinue = false;
@@ -1713,7 +1714,26 @@ export class WakeWordManager {
       return;
     }
 
-    // 4. Media playback - fallback when nothing else is active.
+    // 4. Media panel lingering after a response. The stop word stays
+    // armed for as long as the panel shows, so "stop" dismisses whatever
+    // is on screen (images, a camera card, a forecast) the same way a
+    // double-tap does.
+    if (session._mediaLingerDismiss) {
+      this._log.log('stop-word', 'Dismissing media panel');
+      if (session._imageLingerTimeout) {
+        clearTimeout(session._imageLingerTimeout);
+        session._imageLingerTimeout = null;
+      }
+      const dismiss = session._mediaLingerDismiss;
+      session._mediaLingerDismiss = null;
+      dismiss();
+      if (getSwitchState(session.hass, session.config.satellite_entity, 'wake_sound') !== false) {
+        session.tts.playChime('done');
+      }
+      return;
+    }
+
+    // 5. Media playback - fallback when nothing else is active.
     if (session.mediaPlayer.isPlaying) {
       this._log.log('stop-word', 'Stopping media playback');
       session.mediaPlayer.stop();

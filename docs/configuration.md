@@ -16,6 +16,7 @@ Per-device behavior (pipeline, wake word, TTS output, etc.) is configured on the
   - [Modes](#modes)
   - [Mini Card Features](#mini-card-features)
   - [Mini Card Configuration Reference](#mini-card-configuration-reference)
+  - [Media Panel](#media-panel)
   - [Timers](#timers)
 
 ## Sidebar Panel
@@ -60,6 +61,7 @@ Per-satellite browser profile for overlay appearance, microphone processing, tim
 | **Show user command** *(Conversation Display)* | Show the transcribed voice command on screen, confirming your speech was recognized correctly. Default on |
 | **Show assistant response** *(Conversation Display)* | Show the assistant's response text as it streams in. Turn off for a voice-only, immersive experience: TTS playback and visual results (images, weather, stocks) are unaffected |
 | **Show tool usage** *(Conversation Display)* | Show "using tool" status lines while the assistant works. The animated thinking indicator is always shown regardless of this toggle |
+| **Keep on screen for** *(Media Panel)* | How long the media panel stays after a response finishes speaking. Applies to every visual result: image and video search, weather, financial data, and Lovelace cards from LLM tools. 0-180 seconds, default 30. 0 keeps it up until dismissed |
 | **Hide on-screen countdown** *(Timers)* | Suppresses the countdown pill while a timer is running. The timer still fires and the alert still plays at zero |
 | **Hide timer name on alert** *(Timers)* | Hides the timer name shown below the alert when a timer finishes |
 | **Mute timers** *(Timers)* | Silences the looping alert chime and the spoken alert phrase when a timer finishes. The alert still shows on screen and still waits to be dismissed. Mirrors the **Mute timers** switch on the device, which is the source of truth and stays in sync both ways |
@@ -130,6 +132,18 @@ custom_css: ''                     # CSS overrides inside the mini card shadow D
 ```
 
 > **Note:** Entity selection, microphone settings, and debug logging are configured globally in the sidebar panel - not in the mini card editor.
+
+### Media Panel
+
+Controls how long visual results stay on screen. Lives in the **Advanced** card under the **Media Panel** expandable and takes effect live.
+
+| Setting | Description |
+|---------|-------------|
+| **Keep on screen for** | Seconds the media panel remains after the response finishes speaking (0-180, default 30). Set to 0 to keep it up until dismissed |
+
+This one timeout governs every visual result: image search, video search, weather, financial data, and Lovelace cards returned by LLM tools. While the panel is showing, the stop word stays armed, so saying it dismisses whatever is on screen, as do a double-tap, a double-click, and the Escape key. Scrolling the panel or opening the lightbox cancels the countdown so browsing is never interrupted.
+
+With 0, nothing auto-dismisses: the panel, the blur overlay, and the screensaver suppression all persist until you dismiss it. That suits a camera you want to keep watching, at the cost of a satellite that can sit on one result indefinitely.
 
 ### Timers
 

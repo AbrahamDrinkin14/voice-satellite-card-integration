@@ -91,6 +91,7 @@ export class VoiceSatelliteSession {
     this._startAttempted = false;
     this._lastSyncedSatelliteState = null;
     this._imageLingerTimeout = null;
+    this._mediaLingerDismiss = null;
     this._videoPlaying = false;
     this._activeSkin = null;
     this._fullCardSuppressed = false;
@@ -306,6 +307,9 @@ export class VoiceSatelliteSession {
     }
 
     if (this._hasStarted) {
+      // Lovelace cards mounted from tool results need the same live hass
+      // a dashboard gives its cards, or they freeze at mount-time state.
+      this._uiProxy.updateLovelaceHass(hass);
       this._timer.update();
       this._tts.checkRemotePlayback(hass);
       checkRemoteNotificationPlayback(this._announcement, hass);
@@ -362,6 +366,7 @@ export class VoiceSatelliteSession {
       'seamless_wake_command', 'stt_followup_delay_ms', 'stt_followup_chime',
       'reactive_bar', 'reactive_bar_update_interval_ms',
       'chat_show_user_command', 'chat_show_assistant_response', 'chat_show_tool_usage',
+      'media_panel_linger_s',
       'hide_timer_pills', 'hide_timer_name_on_alert', 'show_timer_name_in_pill',
       'timer_tts_enabled', 'timer_tts_text', 'timer_named_tts_text',
       'screensaver_enabled', 'screensaver_timer_s', 'screensaver_dim_percent', 'screensaver_type',
@@ -485,6 +490,7 @@ export class VoiceSatelliteSession {
       clearTimeout(this._imageLingerTimeout);
       this._imageLingerTimeout = null;
     }
+    this._mediaLingerDismiss = null;
     if (this._followupDelayTimer) {
       clearTimeout(this._followupDelayTimer);
       this._followupDelayTimer = null;

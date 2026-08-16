@@ -122,6 +122,9 @@ export const DEFAULT_CONFIG = {
   timer_tts_text: 'Your timer is up.',
   timer_named_tts_text: 'Your %%TIMER_NAME%% timer is up.',
 
+  // Media panel
+  media_panel_linger_s: 30,
+
   // Skin
   skin: 'default',
   theme_mode: 'auto',

@@ -637,6 +637,9 @@ export class MiniUIManager {
   showVideoPanel() {}
   showWeatherPanel() {}
   showFinancialPanel() {}
+  showLovelaceCard() {}
+  hasVisibleMedia() { return false; }
+  updateLovelaceHass() {}
   hasVisibleImages() { return false; }
   showLightbox() {}
   showVideoLightbox() {}

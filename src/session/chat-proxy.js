@@ -92,6 +92,10 @@ export class ChatBroadcastProxy {
     for (const c of this._cards) c.chat.addFinancial(data);
   }
 
+  addLovelaceCard(config, size) {
+    for (const c of this._cards) c.chat.addLovelaceCard(config, size);
+  }
+
   clear() {
     this._streamedResponse = '';
     for (const c of this._cards) c.chat.clear();

@@ -10,6 +10,7 @@
 import { Timing } from '../constants.js';
 import { attachDoubleTap } from '../shared/double-tap.js';
 import { formatTime, formatPrice, formatLargeNumber, formatChange, truncateTimerName } from '../shared/format.js';
+import { mountLovelaceCard, inferCardSize } from '../shared/lovelace-card.js';
 import { t } from '../i18n/index.js';
 
 // Split-pill layout for named timers. Skin-agnostic: uses currentColor so
@@ -82,6 +83,93 @@ const PORTRAIT_MEDIA_CSS = `
   }
 }`;
 
+// Media panel styling for a Lovelace card mounted from a tool result.
+// Shared across skins for the same reason as the two blocks above: the
+// card brings its own ha-card surface, so the panel drops its own
+// chrome and just positions it.
+//
+// Interaction is deliberately off. Voice Satellite is a hands-free
+// surface, and a live tile card in the overlay would let a stray tap
+// toggle a light. `inert` covers focus and AT; pointer-events lets
+// touches through to the scroller, so a tall card still scrolls by
+// dragging over the card itself.
+//
+// zoom (not transform) so the card reflows at its scaled size instead
+// of overflowing the panel. Lovelace cards know nothing about
+// --vs-text-scale, so scaling the whole card is the only way the Text
+// Scale slider reaches them.
+const LOVELACE_CARD_CSS = `
+#voice-satellite-ui .vs-image-panel.lovelace {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  padding: 0;
+  width: 34%;
+}
+#voice-satellite-ui .vs-image-panel.lovelace.wide {
+  width: 52%;
+  right: 4%;
+}
+/* A card sizes itself; when it comes out taller than the panel the
+   scroller is still the way to reach the rest of it, so keep scrolling
+   and drop only the visible bar. Horizontal overflow is never wanted:
+   nothing in a card should be reachable sideways. */
+#voice-satellite-ui .vs-image-panel.lovelace .vs-panel-scroll {
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+#voice-satellite-ui .vs-image-panel.lovelace .vs-panel-scroll::-webkit-scrollbar {
+  display: none;
+}
+#voice-satellite-ui .vs-lovelace-card {
+  zoom: var(--vs-text-scale, 1);
+  pointer-events: none;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+#voice-satellite-ui .vs-lovelace-error {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--error-color, #db4437);
+  color: var(--text-primary-color, #fff);
+  font-size: 15px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+/* Skins narrow the chat by a fixed amount tuned to their own panel
+   width (has-images assumes 30%), so a card panel of any other width
+   runs over the text. These reclaim the difference: 34% at right 7.5%
+   ends at 41.5%, and the wide variant at right 4% ends at 56%. */
+#voice-satellite-ui.has-card .vs-chat-container {
+  right: calc(41.5% + 40px);
+}
+#voice-satellite-ui.has-card-wide .vs-chat-container {
+  right: calc(56% + 40px);
+}
+@media (orientation: portrait) {
+  #voice-satellite-ui .vs-image-panel.lovelace {
+    left: 50%;
+    right: auto;
+    width: min(92%, 560px);
+    transform: translateX(-50%);
+  }
+  #voice-satellite-ui .vs-image-panel.lovelace.wide {
+    right: auto;
+    width: min(96%, 900px);
+  }
+  /* Portrait stacks the panel above the chat, so the chat keeps the
+     full width the shared portrait rules give it. */
+  #voice-satellite-ui.has-card .vs-chat-container,
+  #voice-satellite-ui.has-card-wide .vs-chat-container {
+    left: 7.5%;
+    right: 7.5%;
+  }
+}`;
+
 const CONDITION_LABEL_KEYS = {
   'sunny': 'full.ui.weather.conditions.sunny',
   'cloudy': 'full.ui.weather.conditions.cloudy',
@@ -113,6 +201,10 @@ export class UIManager {
     this._timerContainer = null;
     this._timerAlertEl = null;
     this._timerPills = new Map(); // timerId -> element
+
+    // Lovelace cards mounted from tool results, kept so every hass
+    // update reaches them (a dashboard does this for its own cards).
+    this._lovelaceCards = [];
   }
 
   get element() {
@@ -983,6 +1075,86 @@ export class UIManager {
   }
 
   /**
+   * Mount a Lovelace card config from a tool result in the media panel.
+   *
+   * The panel opens synchronously so the card lands in the same place
+   * whether it resolves fast or slow, and the mount is skipped if the
+   * turn was already cleared while helpers/resources loaded.
+   *
+   * @param {object} config - Lovelace card config from the tool result
+   */
+  showLovelaceCard(config, size) {
+    if (!this._globalUI || !config || typeof config !== 'object') return;
+    const panel = this._globalUI.querySelector('.vs-image-panel');
+    const scroll = panel.querySelector('.vs-panel-scroll');
+
+    const wrap = document.createElement('div');
+    wrap.className = 'vs-lovelace-card';
+    wrap.setAttribute('inert', '');
+    scroll.appendChild(wrap);
+
+    // Image semantics, not featured: a card is something to look at, so
+    // it earns the 30s post-TTS linger (and the scroll/lightbox
+    // cancellation, double-tap and stop word) rather than vanishing with
+    // the response the way the weather and financial payloads do.
+    // hasVisibleImages() keys on exactly this: visible and not featured.
+    const wide = inferCardSize(config, size) === 'wide';
+    panel.classList.add('lovelace', 'visible');
+    panel.classList.toggle('wide', wide);
+    this._globalUI.classList.toggle('has-card-wide', wide);
+    this._globalUI.classList.toggle('has-card', !wide);
+    this._globalUI.classList.add('has-images');
+
+    mountLovelaceCard(wrap, this._card.hass, config, this._log)
+      .then((el) => {
+        if (el) this._lovelaceCards.push(el);
+      })
+      .catch((e) => {
+        // Helpers themselves are unavailable, so there is no hui-error-card
+        // to fall back on. Draw the rectangle ourselves.
+        this._log?.error?.('lovelace', `Card mount failed: ${e?.message || e}`);
+        if (!wrap.isConnected) return;
+        const err = document.createElement('div');
+        err.className = 'vs-lovelace-error';
+        err.textContent = this._t(
+          'full.ui.lovelace.mount_failed',
+          'Cannot render card: {error}',
+          { error: e?.message || String(e) },
+        );
+        wrap.appendChild(err);
+      });
+  }
+
+  /**
+   * Push a hass update into every mounted Lovelace card, dropping the
+   * ones whose turn has been cleared.
+   * @param {object} hass - HA frontend object
+   */
+  updateLovelaceHass(hass) {
+    if (!hass || this._lovelaceCards.length === 0) return;
+    this._lovelaceCards = this._lovelaceCards.filter((el) => el.isConnected);
+    for (const el of this._lovelaceCards) {
+      try {
+        el.hass = hass;
+      } catch (_) { /* a card that rejects hass keeps its last render */ }
+    }
+  }
+
+  /**
+   * Returns true if the media panel is showing anything at all.
+   *
+   * Unlike hasVisibleImages(), this does not exclude the "featured"
+   * variants (weather, financial, Lovelace cards). Everything drawn in
+   * the panel is something the user is meant to look at, so everything
+   * gets the same on-screen lifetime.
+   */
+  hasVisibleMedia() {
+    if (!this._globalUI) return false;
+    const panel = this._globalUI.querySelector('.vs-image-panel');
+    return !!panel && panel.classList.contains('visible');
+  }
+
+  /**
    * Returns true if the image panel is currently visible.
    */
   hasVisibleImages() {
@@ -1087,9 +1259,14 @@ export class UIManager {
         }
         while (scroll.firstChild) scroll.removeChild(scroll.firstChild);
       }
-      panel.classList.remove('visible', 'featured', 'weather', 'financial');
+      panel.classList.remove(
+        'visible', 'featured', 'weather', 'financial', 'lovelace', 'wide',
+      );
     }
-    this._globalUI.classList.remove('has-images', 'has-featured');
+    this._lovelaceCards = [];
+    this._globalUI.classList.remove(
+      'has-images', 'has-featured', 'has-card', 'has-card-wide',
+    );
     this.hideLightbox();
   }
 
@@ -1349,7 +1526,8 @@ export class UIManager {
       el.id = 'voice-satellite-styles';
       document.head.appendChild(el);
     }
-    el.textContent = skin.css + TIMER_SPLIT_PILL_CSS + PORTRAIT_MEDIA_CSS;
+    el.textContent = skin.css + TIMER_SPLIT_PILL_CSS + PORTRAIT_MEDIA_CSS
+      + LOVELACE_CARD_CSS;
   }
 
   _applyTextScale() {

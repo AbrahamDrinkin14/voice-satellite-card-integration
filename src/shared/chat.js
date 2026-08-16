@@ -91,6 +91,10 @@ export class ChatManager {
     this._card.ui.showFinancialPanel(data);
   }
 
+  addLovelaceCard(config, size) {
+    this._card.ui.showLovelaceCard(config, size);
+  }
+
   addAssistant(text) {
     // With the response hidden there is no bubble to take the dots'
     // place, so removing them reflows the chat and makes the earlier

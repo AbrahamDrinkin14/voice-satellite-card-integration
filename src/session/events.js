@@ -575,8 +575,13 @@ export function onTTSComplete(session, playbackFailed) {
 
   const cleanup = () => {
     session._imageLingerTimeout = null;
+    session._mediaLingerDismiss = null;
     // User is actively browsing images - don't auto-dismiss
     if (session.ui.isLightboxVisible()) return;
+    // Stop word was armed for the panel's lifetime (see below); release
+    // it, then let media playback re-arm it if something is still playing.
+    session.wakeWord?.disableStopModel();
+    session.mediaPlayer?.refreshStopWord();
     // Resume any media playback we paused at wake-word time. Skipped above
     // for the shouldContinue branch - that path stays paused for the next turn.
     session.mediaPlayer.resumeAfterInterrupt();
@@ -615,12 +620,31 @@ export function onTTSComplete(session, playbackFailed) {
     return;
   }
 
-  // When images are showing, keep the visual UI for 30 seconds
-  // Stop only the mic reactivity so the bar doesn't respond to audio
-  if (session.ui.hasVisibleImages()) {
+  // Anything in the media panel - images, videos, weather, financial data,
+  // a Lovelace card from a tool - is there to be looked at, so it all
+  // shares one on-screen lifetime, set by the Media Panel slider.
+  // Stop only the mic reactivity so the bar doesn't respond to audio.
+  if (session.ui.hasVisibleMedia()) {
     session.ui.stopReactive();
     if (session._imageLingerTimeout) clearTimeout(session._imageLingerTimeout);
-    session._imageLingerTimeout = setTimeout(cleanup, Timing.IMAGE_LINGER);
+
+    // Keep the stop word armed while the panel is up: whatever is on
+    // screen is dismissible by voice for exactly as long as it shows.
+    // stopOnly=false so the wake words keep listening alongside it.
+    session.wakeWord?.enableStopModel(false);
+    session._mediaLingerDismiss = cleanup;
+
+    const lingerS = Number(session.config.media_panel_linger_s);
+    const lingerMs = Number.isFinite(lingerS)
+      ? lingerS * 1000
+      : Timing.IMAGE_LINGER;
+    if (lingerMs > 0) {
+      session._imageLingerTimeout = setTimeout(cleanup, lingerMs);
+    } else {
+      // 0 means "until dismissed": no timer at all. Double-tap, Escape,
+      // and the stop word are the ways out.
+      session.logger.log('ui', 'Media panel held until dismissed');
+    }
   } else if (playbackFailed) {
     // TTS failed (e.g. autoplay blocked) - keep response visible so the user can read it
     session.logger.log('tts', 'Playback failed - lingering response text');

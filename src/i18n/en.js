@@ -87,6 +87,9 @@ export default {
         detail_high: 'High: {value}',
         detail_low: 'Low: {value}',
       },
+      lovelace: {
+        mount_failed: 'Cannot render card: {error}',
+      },
     },
   },
   cards: {

@@ -95,7 +95,7 @@ export class DoubleTapHandler {
 
   _getInteractionState() {
     const isActive = INTERACTING_STATES.includes(this._card.currentState) || this._card.tts.isPlaying;
-    const isImageLinger = !!this._card._imageLingerTimeout || this._card.ui.isLightboxVisible() || this._card.ui.hasVisibleImages();
+    const isImageLinger = !!this._card._imageLingerTimeout || this._card.ui.isLightboxVisible() || this._card.ui.hasVisibleMedia();
     const isTimerAlert = this._card.timer.alertActive;
     const isShow = !!this._card.show?.active;
     const isNotification = this._card.announcement.playing
@@ -161,6 +161,14 @@ export class DoubleTapHandler {
     if (this._card._imageLingerTimeout) {
       clearTimeout(this._card._imageLingerTimeout);
       this._card._imageLingerTimeout = null;
+    }
+    // The media panel arms the stop word for as long as it shows.
+    // Releasing it here keeps a manual dismissal in step with the
+    // timeout path, which does the same in its cleanup.
+    if (this._card._mediaLingerDismiss) {
+      this._card._mediaLingerDismiss = null;
+      this._card.wakeWord?.disableStopModel();
+      this._card.mediaPlayer?.refreshStopWord();
     }
 
     this._card.tts.stop();

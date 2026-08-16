@@ -223,6 +223,16 @@ export function handleIntentProgress(mgr, eventData) {
     const toolName = eventData.chat_log_delta.tool_name
       || eventData.chat_log_delta.tool_call?.tool_name;
 
+    // The panel payloads are all top-level keys, so when a tool "should"
+    // paint something and doesn't, the first question is always what the
+    // result actually looked like at this level.
+    if (mgr.log.isDebug && toolResult && typeof toolResult === 'object') {
+      mgr.log.logDebug(
+        'pipeline',
+        `Tool result keys (${toolName || 'unknown tool'}): ${Object.keys(toolResult).join(', ')}`,
+      );
+    }
+
     // Weather forecast - show weather card in media panel
     // Tool name is prefixed by HA integration: voice-satellite-card-weather-forecast__get_weather_forecast
     if (toolName?.endsWith('get_weather_forecast') && toolResult?.forecast && !toolResult.error) {
@@ -234,6 +244,16 @@ export function handleIntentProgress(mgr, eventData) {
     // Tool name: voice-satellite-card-financial-data__get_financial_data
     if (toolName?.includes('financial-data__get_financial_data') && toolResult?.query_type && !toolResult.error) {
       mgr.card.chat.addFinancial(toolResult);
+      return;
+    }
+
+    // Lovelace card from any tool - no tool-name coupling, same as
+    // featured_image below. A tool that wants to draw something the
+    // built-in payloads don't cover returns a card config and the media
+    // panel mounts it; screenless assistants ignore the key.
+    if (toolResult?.card && typeof toolResult.card === 'object') {
+      mgr.log.log('pipeline', `Tool result card: ${toolResult.card.type || 'unknown type'}`);
+      mgr.card.chat.addLovelaceCard(toolResult.card, toolResult.card_size);
       return;
     }
 

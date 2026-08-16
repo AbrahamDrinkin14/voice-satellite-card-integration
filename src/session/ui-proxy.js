@@ -160,6 +160,14 @@ export class UIBroadcastProxy {
     for (const c of this._cards) c.ui.showFinancialPanel(data);
   }
 
+  showLovelaceCard(config, size) {
+    for (const c of this._cards) c.ui.showLovelaceCard(config, size);
+  }
+
+  updateLovelaceHass(hass) {
+    for (const c of this._cards) c.ui.updateLovelaceHass(hass);
+  }
+
   showLightbox(src) {
     for (const c of this._cards) c.ui.showLightbox(src);
   }
@@ -245,6 +253,13 @@ export class UIBroadcastProxy {
   isLightboxVisible() {
     for (const c of this._cards) {
       if (c.ui.isLightboxVisible()) return true;
+    }
+    return false;
+  }
+
+  hasVisibleMedia() {
+    for (const c of this._cards) {
+      if (c.ui.hasVisibleMedia()) return true;
     }
     return false;
   }

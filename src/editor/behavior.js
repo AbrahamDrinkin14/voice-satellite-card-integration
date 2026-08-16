@@ -153,6 +153,28 @@ export const conversationDisplaySchema = [
   },
 ];
 
+/** How long the media panel stays after a response finishes speaking.
+ *  Panel-only (per-browser), like the screensaver settings. */
+export const mediaPanelSchema = [
+  {
+    type: 'expandable',
+    name: '',
+    title: t(null, 'editor.behavior.media_panel', 'Media Panel'),
+    flatten: true,
+    schema: [
+      {
+        name: 'media_panel_linger_s',
+        default: 30,
+        selector: {
+          number: {
+            min: 0, max: 180, step: 5, mode: 'slider', unit_of_measurement: 's',
+          },
+        },
+      },
+    ],
+  },
+];
+
 export const behaviorLabels = {
   satellite_entity: t(null, 'editor.behavior.satellite_entity', 'Satellite entity'),
   auto_start: t(null, 'editor.behavior.auto_start', 'Auto start'),
@@ -161,6 +183,7 @@ export const behaviorLabels = {
   chat_show_user_command: t(null, 'editor.behavior.chat_show_user_command', 'Show user command'),
   chat_show_assistant_response: t(null, 'editor.behavior.chat_show_assistant_response', 'Show assistant response'),
   chat_show_tool_usage: t(null, 'editor.behavior.chat_show_tool_usage', 'Show tool usage'),
+  media_panel_linger_s: t(null, 'editor.behavior.media_panel_linger_s', 'Keep on screen for'),
   hide_timer_pills: t(null, 'editor.behavior.hide_timer_pills', 'Hide on-screen countdown'),
   show_timer_name_in_pill: t(null, 'editor.behavior.show_timer_name_in_pill', 'Show timer name inside pill'),
   hide_timer_name_on_alert: t(null, 'editor.behavior.hide_timer_name_on_alert', 'Hide timer name on alert'),
@@ -193,6 +216,7 @@ export const behaviorHelpers = {
   chat_show_user_command: t(null, 'editor.behavior.helper_chat_show_user_command', 'Show the transcribed voice command on screen, confirming your speech was recognized correctly.'),
   chat_show_assistant_response: t(null, 'editor.behavior.helper_chat_show_assistant_response', 'Show the assistant response text as it streams in. Turn off for a voice-only experience - TTS and visual results (images, weather, etc.) are unaffected.'),
   chat_show_tool_usage: t(null, 'editor.behavior.helper_chat_show_tool_usage', 'Show "using tool" status lines while the assistant works. The animated thinking indicator always shows regardless.'),
+  media_panel_linger_s: t(null, 'editor.behavior.helper_media_panel_linger_s', 'How long anything shown in the media panel (images, videos, weather, financial data, Lovelace cards from LLM tools) stays after the response finishes speaking. The stop word stays armed for the whole time, so you can say it to dismiss, along with a double-tap or the Escape key. Set to 0 to keep the panel up until it is dismissed, which also holds off the screensaver.'),
   hide_timer_pills: t(null, 'editor.behavior.helper_hide_timer_pills', 'Hide the countdown pill on screen. Timers still run and the alert still fires when they finish.'),
   show_timer_name_in_pill: t(null, 'editor.behavior.helper_show_timer_name_in_pill', 'Display the timer name alongside the countdown in the pill (e.g. "Stir the sauce | 15:30"). Names longer than 25 characters are truncated.'),
   hide_timer_name_on_alert: t(null, 'editor.behavior.helper_hide_timer_name_on_alert', 'When a timer finishes, hide the timer name shown below the alert.'),
