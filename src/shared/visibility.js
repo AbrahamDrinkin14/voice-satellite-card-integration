@@ -54,6 +54,20 @@ export class VisibilityManager {
     // have no mic or pipeline and must not interfere with the active owner.
     if (!this._card.isOwner) return;
 
+    // Kiosk Satellite owns the microphone under the native handoff: the page
+    // holds no capture to release, the app keeps listening while it is off
+    // screen, and its WebView is never really thrown away. Tearing the stack
+    // down here only churns the handoff (#137) - and the app hides its own
+    // freezes from the page anyway, so this is for a genuine background.
+    // A pause raised before the handoff engaged still has to be resumed.
+    if (this._card._nativeWakeActive && !this._isPaused) {
+      this._log.log(
+        'visibility',
+        `Tab ${document.hidden ? 'hidden' : 'visible'} - Kiosk Satellite owns detection, keeping the session`,
+      );
+      return;
+    }
+
     if (document.hidden) {
       const hasActivePipeline = !!this._card.pipeline?.binaryHandlerId;
       const hasActivePlayback = !!this._card.tts?.isPlaying;

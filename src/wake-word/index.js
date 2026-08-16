@@ -344,6 +344,23 @@ export class WakeWordManager {
     this._tfweb = null;
   }
 
+  /**
+   * Re-sync the mode caches to what the getters report right now.
+   *
+   * The handoff pins getEngine() to null and isEnabled() to false while Kiosk
+   * Satellite owns detection, so every time it engages or ends, those two read
+   * differently without the user touching a thing. checkSettingsChanged() has
+   * no way to tell that apart from a real mode change and would act on it:
+   * ending the handoff reads as "the user switched to On Device" and starts a
+   * browser engine, and re-establishing it reads as "the user switched to Home
+   * Assistant" and starts a server wake pipeline underneath the app (#137).
+   * Whoever flips the handoff calls this so the next check sees no change.
+   */
+  syncHandoffCaches() {
+    this._cachedEnabled = this.isEnabled();
+    this._cachedEngine = this.getEngine();
+  }
+
   /** True when the stop classifier is handed off to Kiosk Satellite. */
   _nativeStopActive() {
     return this._session._nativeStopActive === true
@@ -1916,8 +1933,7 @@ export class WakeWordManager {
             // alone, the next HA state change reads that as "the user switched
             // to Home Assistant mode" and starts a server pipeline underneath
             // the app.
-            this._cachedEnabled = this.isEnabled();
-            this._cachedEngine = this.getEngine();
+            this.syncHandoffCaches();
           } else if (wasNative) {
             // The app handed the mic back (an engine it cannot run, or
             // detection turned off). Run the full start path: the browser now
@@ -1927,8 +1943,7 @@ export class WakeWordManager {
               .then(() => {
                 // Adopt what we ended up with, or the next HA state change
                 // sees engine null -> 'mww' and restarts it all over again.
-                this._cachedEnabled = this.isEnabled();
-                this._cachedEngine = this.getEngine();
+                this.syncHandoffCaches();
                 this._cachedModel = this.getModelName();
               })
               .catch((e) => {
@@ -1987,7 +2002,14 @@ export class WakeWordManager {
         } else {
           // Off can mean either Home Assistant (server pipeline takes over)
           // or Disabled (mic stays off until voice_satellite.wake fires).
-          const disabled = getSelectState(
+          //
+          // A live handoff counts as Disabled whatever the select says: the app
+          // owns detection, and the select still reads "On Device" while it
+          // does. Reading the select alone here is what started a server wake
+          // pipeline underneath Kiosk Satellite (#137) - the cache sync in
+          // syncHandoffCaches() should stop us ever arriving here in that
+          // state, but the branch must not be able to do the wrong thing.
+          const disabled = session._nativeWakeActive === true || getSelectState(
             session.hass, session.config.satellite_entity,
             'wake_word_detection', 'Home Assistant',
           ) === 'Disabled';

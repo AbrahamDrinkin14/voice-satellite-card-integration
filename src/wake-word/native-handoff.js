@@ -298,6 +298,10 @@ export async function setupNativeWakeHandoff(session, { force = false } = {}) {
 
   _active = true;
   session._nativeWakeActive = true;
+  // getEngine()/isEnabled() answer for the handoff from here on. Adopt that as
+  // the baseline or the next HA state change reads the flip as a mode switch
+  // the user never made (#137).
+  session.wakeWord?.syncHandoffCaches?.();
   // The handoff-idle state owns no mic. If a passive wake-word capture is
   // already open (the browser path brought it up before the handoff could
   // engage, e.g. entity states arriving late on page load), close it now or
@@ -358,5 +362,10 @@ export function teardownNativeWakeHandoff(session, reason = null) {
   if (session) {
     session._nativeWakeActive = false;
     session._nativeStopActive = false;
+    // The getters answer for the real selects again. Same reason as the setup
+    // side: a teardown is not a settings change, and left unsynced the next HA
+    // state change starts a browser engine on top of a card that is about to
+    // hand detection straight back (mute, or a visibility pause).
+    session.wakeWord?.syncHandoffCaches?.();
   }
 }
