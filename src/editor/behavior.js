@@ -113,6 +113,7 @@ export function buildTimersSchema(cfg) {
     { name: 'hide_timer_pills', default: false, selector: { boolean: {} } },
     { name: 'show_timer_name_in_pill', default: true, selector: { boolean: {} } },
     { name: 'hide_timer_name_on_alert', default: false, selector: { boolean: {} } },
+    { name: 'mute_timers', default: false, selector: { boolean: {} } },
     { name: 'timer_tts_enabled', default: false, selector: { boolean: {} } },
   ];
 
@@ -163,6 +164,7 @@ export const behaviorLabels = {
   hide_timer_pills: t(null, 'editor.behavior.hide_timer_pills', 'Hide on-screen countdown'),
   show_timer_name_in_pill: t(null, 'editor.behavior.show_timer_name_in_pill', 'Show timer name inside pill'),
   hide_timer_name_on_alert: t(null, 'editor.behavior.hide_timer_name_on_alert', 'Hide timer name on alert'),
+  mute_timers: t(null, 'editor.behavior.mute_timers', 'Mute timers'),
   timer_tts_enabled: t(null, 'editor.behavior.timer_tts_enabled', 'Speak timer alert phrase'),
   timer_tts_text: t(null, 'editor.behavior.timer_tts_text', 'Timer alert phrase'),
   timer_named_tts_text: t(null, 'editor.behavior.timer_named_tts_text', 'Named timer alert phrase'),
@@ -194,6 +196,7 @@ export const behaviorHelpers = {
   hide_timer_pills: t(null, 'editor.behavior.helper_hide_timer_pills', 'Hide the countdown pill on screen. Timers still run and the alert still fires when they finish.'),
   show_timer_name_in_pill: t(null, 'editor.behavior.helper_show_timer_name_in_pill', 'Display the timer name alongside the countdown in the pill (e.g. "Stir the sauce | 15:30"). Names longer than 25 characters are truncated.'),
   hide_timer_name_on_alert: t(null, 'editor.behavior.helper_hide_timer_name_on_alert', 'When a timer finishes, hide the timer name shown below the alert.'),
+  mute_timers: t(null, 'editor.behavior.helper_mute_timers', 'Silence the looping alert chime and the spoken alert phrase when a timer finishes. The alert still shows on screen and still waits to be dismissed.'),
   timer_tts_enabled: t(null, 'editor.behavior.helper_timer_tts_enabled', 'Speak a configurable phrase between timer alert chimes. The phrase is synthesized with the Assist pipeline that created the timer.'),
   timer_tts_text: t(null, 'editor.behavior.helper_timer_tts_text', 'Phrase for unnamed timers. Translate this for the language you use with this satellite.'),
   timer_named_tts_text: t(null, 'editor.behavior.helper_timer_named_tts_text', 'Phrase for named timers. Use %%TIMER_NAME%% where the timer name should be inserted.'),

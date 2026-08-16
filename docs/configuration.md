@@ -62,6 +62,7 @@ Per-satellite browser profile for overlay appearance, microphone processing, tim
 | **Show tool usage** *(Conversation Display)* | Show "using tool" status lines while the assistant works. The animated thinking indicator is always shown regardless of this toggle |
 | **Hide on-screen countdown** *(Timers)* | Suppresses the countdown pill while a timer is running. The timer still fires and the alert still plays at zero |
 | **Hide timer name on alert** *(Timers)* | Hides the timer name shown below the alert when a timer finishes |
+| **Mute timers** *(Timers)* | Silences the looping alert chime and the spoken alert phrase when a timer finishes. The alert still shows on screen and still waits to be dismissed. Mirrors the **Mute timers** switch on the device, which is the source of truth and stays in sync both ways |
 | **Speak timer alert phrase** *(Timers)* | Adds a configurable spoken phrase after every two alert chimes. The next chime pair starts shortly after the phrase ends. Uses the same Assist pipeline that created the timer |
 | **Noise suppression** *(Wake Word / STT)* | Browser-level noise suppression on the microphone input. Configurable independently for each capture phase |
 | **Echo cancellation** *(Wake Word / STT)* | Browser-level echo cancellation. Configurable independently for each capture phase |
@@ -138,6 +139,7 @@ Per-browser options that control the on-screen and spoken behavior of timers wit
 |---------|-------------|
 | **Hide on-screen countdown** | Suppresses the countdown pill while a timer is running. The timer still fires and the alert still plays at zero. Useful when a tablet doubles as a wall display where pills feel intrusive |
 | **Hide timer name on alert** | When a timer finishes, hides the timer name shown below the alert. The icon, time, and chime still appear |
+| **Mute timers** | Silences the looping alert chime and the spoken alert phrase. The alert pill, timer name, and dismissal behavior are unchanged. Mirrors the device's **Mute timers** switch |
 | **Speak timer alert phrase** | Adds a spoken phrase after every two alert chimes. When enabled, the timer alert repeats as `chime -> chime -> phrase -> short pause` until dismissed |
 | **Timer alert phrase** | Phrase for unnamed timers. Default: `Your timer is up.` |
 | **Named timer alert phrase** | Phrase for named timers. Default: `Your %%TIMER_NAME%% timer is up.` Use `%%TIMER_NAME%%` where the runtime timer name should be inserted |

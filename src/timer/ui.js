@@ -3,7 +3,7 @@
 import { playChime, CHIME_ALERT, getChimeDuration } from '../audio/chime.js';
 import { buildMediaUrl, buildRemoteMediaUrl, playMediaUrl } from '../audio/media-playback.js';
 import { playRemote, stopRemote } from '../tts/comms.js';
-import { getSelectState } from '../shared/satellite-state.js';
+import { getSelectState, getSwitchState } from '../shared/satellite-state.js';
 import { BlurReason, DEFAULT_CONFIG, Timing } from '../constants.js';
 import * as kiosk from '../kiosk/index.js';
 
@@ -113,6 +113,10 @@ export function showAlert(mgr, names) {
   const labelNames = mgr.card.config?.hide_timer_name_on_alert ? [] : names;
   mgr.card.ui.showTimerAlert(() => mgr.clearAlert(), labelNames);
 
+  if (timersMuted(mgr)) {
+    mgr.log.log('timer', 'Timer sounds muted - alert shows without audio');
+  }
+
   startAlertLoop(mgr, names);
 }
 
@@ -146,8 +150,23 @@ export function clearAlert(mgr) {
   mgr.log.log('timer', 'Alert dismissed');
 }
 
+/**
+ * Whether the integration's Mute timers switch is on.  Read live on
+ * every chime so flipping the switch during a ringing alert takes
+ * effect immediately, in both directions.
+ *
+ * @param {import('./index.js').TimerManager} mgr
+ */
+function timersMuted(mgr) {
+  return getSwitchState(
+    mgr.card.hass, mgr.card.config?.satellite_entity, 'mute_timers',
+  ) === true;
+}
+
 /** @param {import('./index.js').TimerManager} mgr */
 function playAlertChime(mgr) {
+  if (timersMuted(mgr)) return;
+
   // In normal_playback mode, snapshot the remote before the chime fires
   // (chime.js writes to the remote via play_media with announce=false,
   // wiping any user music). Idempotent across loop iterations.
@@ -233,6 +252,10 @@ function stopAlertLoop(mgr) {
 
 function buildTimerTtsText(mgr, names) {
   if (mgr.card.config?.timer_tts_enabled !== true) return '';
+  // Muted at alert start: take the plain chime branch so no TTS is
+  // synthesized for an alert that would never speak it.  playAlertChime
+  // keeps that branch silent while the switch stays on.
+  if (timersMuted(mgr)) return '';
 
   const cleanedNames = (names || [])
     .map((n) => (typeof n === 'string' ? n.trim() : ''))
@@ -324,6 +347,7 @@ async function synthesizeTimerTts(mgr, text, pipelineId) {
 
 async function playTimerTtsMedia(mgr, token, media) {
   if (!media?.url || !mgr.alertActive || _alertLoopToken !== token) return;
+  if (timersMuted(mgr)) return;
 
   const card = mgr.card;
   const url = buildMediaUrl(media.url);

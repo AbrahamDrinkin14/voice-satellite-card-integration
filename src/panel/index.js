@@ -187,6 +187,7 @@ class VoiceSatellitePanel extends HTMLElement {
     this._serverConfigLoadSeq = 0;
     this._serverConfigSaveTimer = null;
     this._ssSwitchPending = null;
+    this._muteTimersSwitchPending = null;
     this._config = Object.assign({}, DEFAULT_CONFIG, getStoredConfig());
     // Migrate legacy unified DSP keys into the STT group.
     const LEGACY_DSP_KEYS = ['noise_suppression', 'echo_cancellation', 'auto_gain_control', 'voice_isolation'];
@@ -224,6 +225,7 @@ class VoiceSatellitePanel extends HTMLElement {
       this._buildDom();
     }
     this._reconcileScreensaverSwitch();
+    this._reconcileMuteTimersSwitch();
     this._updateForm();
     this._updateStatus();
   }
@@ -535,6 +537,7 @@ class VoiceSatellitePanel extends HTMLElement {
   _onSettingsChange(newData) {
     const prevScreensaverType = this._config.screensaver_type;
     const prevScreensaverEnabled = this._config.screensaver_enabled;
+    const prevMuteTimers = this._config.mute_timers;
     const prevScreensaverSmallClock = this._config.screensaver_small_clock;
     const prevTimerTtsEnabled = this._config.timer_tts_enabled;
     if (Object.prototype.hasOwnProperty.call(newData, 'microphone_device_id')
@@ -551,6 +554,12 @@ class VoiceSatellitePanel extends HTMLElement {
     if (Object.prototype.hasOwnProperty.call(newData, 'screensaver_enabled')
         && this._config.screensaver_enabled !== prevScreensaverEnabled) {
       this._pushScreensaverSwitch(this._config.screensaver_enabled === true);
+    }
+
+    // Same mirroring for the Timers card's Mute timers toggle.
+    if (Object.prototype.hasOwnProperty.call(newData, 'mute_timers')
+        && this._config.mute_timers !== prevMuteTimers) {
+      this._pushMuteTimersSwitch(this._config.mute_timers === true);
     }
 
     // Propagate to running session (debug, mic constraints, reactive bar, etc.)
@@ -662,6 +671,53 @@ class VoiceSatellitePanel extends HTMLElement {
       session.updateConfig(Object.assign({}, this._config), { fromPanel: true });
     }
     this._syncConfigToUi({ rebuildSchemas: true });
+  }
+
+  /**
+   * Push the Timers card's Mute timers toggle to the integration's
+   * Mute timers switch.  Same pending-expectation dance as
+   * _pushScreensaverSwitch; no-op when the switch entity doesn't exist
+   * (older integration version).
+   */
+  _pushMuteTimersSwitch(muted) {
+    if (!this._hass || !this._config.satellite_entity) return;
+    const eid = getSwitchEntityId(this._hass, this._config.satellite_entity, 'mute_timers');
+    if (!eid) return;
+    if (this._hass.states[eid]?.state === (muted ? 'on' : 'off')) return;
+    this._muteTimersSwitchPending = { value: muted, until: Date.now() + 5000 };
+    this._hass.callService('switch', muted ? 'turn_on' : 'turn_off', { entity_id: eid })
+      .catch(() => { this._muteTimersSwitchPending = null; });
+  }
+
+  /**
+   * Fold an external flip of the Mute timers switch (automation, HA UI)
+   * back into the panel config so the Timers toggle reflects it live.
+   * The switch is authoritative - the timer alert reads it directly, so
+   * the config value here is only the toggle's display state.
+   */
+  _reconcileMuteTimersSwitch() {
+    if (!this._hass || !this._config.satellite_entity) return;
+    // Wait for the server profile hydration round-trip, as in
+    // _reconcileScreensaverSwitch.
+    if (this._serverConfigLoadedEntity !== this._config.satellite_entity) return;
+    const switchOn = getSwitchState(this._hass, this._config.satellite_entity, 'mute_timers');
+    if (switchOn === undefined) return;
+
+    const pending = this._muteTimersSwitchPending;
+    if (pending) {
+      if (switchOn === pending.value || Date.now() > pending.until) {
+        this._muteTimersSwitchPending = null;
+      } else {
+        return; // our own service call is still in flight
+      }
+    }
+    if ((this._config.mute_timers === true) === switchOn) return;
+
+    this._localChangeVersion += 1;
+    this._config.mute_timers = switchOn;
+    this._persistLocalConfig();
+    this._scheduleServerConfigSave();
+    this._syncConfigToUi();
   }
 
   /**

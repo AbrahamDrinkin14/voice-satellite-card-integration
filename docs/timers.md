@@ -17,7 +17,7 @@ Each satellite registers itself with Home Assistant's timer manager when it load
 What you see on the satellite:
 
 1. **Countdown pill** appears at the top of the overlay as soon as the timer is created. The pill shows the remaining time and animates a progress bar. Multiple timers stack independently.
-2. **Alert** fires when the timer reaches zero: a centered alert pill flashes, the alert chime loops, and the timer name (if any) is shown below the pill in the skin's assistant text style. The wake-word stop interrupter is enabled while the alert is active so you can say the stop keyword to dismiss it (`"stop"` on microWakeWord and openWakeWord, `"ok stop"` on vsWakeWord - see [Stop Word Interruption](wake-word.md#stop-word-interruption)).
+2. **Alert** fires when the timer reaches zero: a centered alert pill flashes, the alert chime loops (silent while **Mute timers** is on), and the timer name (if any) is shown below the pill in the skin's assistant text style. The wake-word stop interrupter is enabled while the alert is active so you can say the stop keyword to dismiss it (`"stop"` on microWakeWord and openWakeWord, `"ok stop"` on vsWakeWord - see [Stop Word Interruption](wake-word.md#stop-word-interruption)).
 3. **Optional spoken alert phrase** can be enabled from the side panel. When enabled, the alert repeats as `chime -> chime -> phrase -> short pause` until dismissed. The next chime pair starts about 500 ms after the phrase ends. The phrase is synthesized with the same Assist pipeline that created the timer, so dual-pipeline setups keep the expected language and voice.
 4. **Cleanup** happens only when dismissed (double-tap or the stop keyword). Timer alerts do not auto-dismiss; the alert chime keeps looping until you dismiss it.
 
@@ -116,8 +116,9 @@ Per-browser toggles under **Advanced > Timers** in the sidebar panel:
 | **Hide on-screen countdown** | Off | Suppresses the countdown pill while the timer is running. The timer still fires and the alert still plays at zero. Useful for tablets that double as a wall display where pills feel intrusive |
 | **Show timer name inside pill** | On | Renders the timer name alongside the countdown, e.g. `⏱ Stir the sauce \| 15:30`. Names longer than 25 characters are truncated with `...`. Unnamed timers always render as time-only |
 | **Hide timer name on alert** | Off | When a timer finishes, hides the timer name shown below the alert. The icon, time, and chime still appear |
+| **Mute timers** | Off | Silences the looping alert chime and the spoken alert phrase. The alert still appears and still waits to be dismissed. This toggle mirrors the device's **Mute timers** switch, which is the source of truth: flipping either one updates the other, and changing it during a ringing alert silences or restores the sound immediately. Useful for bedrooms and nurseries, where the whole device shouldn't be muted |
 | **Speak timer alert phrase** | Off | Adds a spoken phrase after every two alert chimes, then starts the next chime pair after a short pause. Enabling this reveals the phrase fields below |
 | **Timer alert phrase** | `Your timer is up.` | Phrase for unnamed timers. Translate this to the language you use with this satellite |
 | **Named timer alert phrase** | `Your %%TIMER_NAME%% timer is up.` | Phrase for named timers. `%%TIMER_NAME%%` is replaced with the timer name when the alert fires |
 
-These settings are stored in the selected satellite's panel profile. Toggling them takes effect live without restarting the engine.
+These settings are stored in the selected satellite's panel profile, except **Mute timers**, which lives on the device as a switch entity so automations can drive it (see [integration.md](integration.md)). Toggling any of them takes effect live without restarting the engine.
