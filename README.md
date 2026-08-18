@@ -1,9 +1,5 @@
 <h1 align="center" style="border-bottom: none">
-   <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="assets/vs_banner_dark.svg" />
-      <source media="(prefers-color-scheme: light)" srcset="assets/vs_banner_light.svg" />
-      <img alt="Kiosk Satellite for Home Assistant" src="assets/vs_banner_default.svg" width="650" />
-   </picture>
+   <img alt="Voice Satellite for Home Assistant" src="assets/banner.png" width="650" />
 </h1>
 
 <p align="center">
