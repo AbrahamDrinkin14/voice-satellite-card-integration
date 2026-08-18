@@ -53,6 +53,10 @@ export class PipelineManager {
     // up turns route through the same Pipeline N as the original turn.
     this._activeWakeWordSlot = null;
     this._isStreaming = false;
+    // Latched by resumeDeferredAudio() when the wake chime window elapses
+    // before the init event has delivered the binary handler ID; start()
+    // reads it so a deferred-audio run still begins streaming.
+    this._deferredAudioReady = false;
     this._askQuestionCallback = null;
     this._askQuestionHandled = false;
     this._reconnectRef = { listener: null };
@@ -137,6 +141,11 @@ export class PipelineManager {
     const opts = options || {};
     const { connection, config } = this._card;
     const gen = this._pipelineGen;
+
+    // Clear any leftover latch from a previous run before the chime
+    // choreography for THIS run can possibly fire (its timers are at
+    // least a dedupe window away).
+    this._deferredAudioReady = false;
 
     if (!connection) {
       throw new Error('No Home Assistant connection available');
@@ -321,6 +330,19 @@ export class PipelineManager {
     }
 
     if (opts.defer_audio_start) {
+      if (this._deferredAudioReady) {
+        // The chime/unmute window already elapsed while the subscribe +
+        // init round-trip was in flight (slow HA or network). The unmute
+        // handler found no handler ID and latched instead of sending, so
+        // audio must start here or the run never receives a single frame.
+        // Keep the buffer: it holds whatever the user said since the
+        // unmute, and the unmute handler already discarded chime residue.
+        this._deferredAudioReady = false;
+        this._log.log('pipeline', `Handler ID confirmed: ${this._binaryHandlerId} - deferred window already elapsed, starting audio`);
+        this._card.audio.startSending(() => this._binaryHandlerId);
+        this._isStreaming = true;
+        return;
+      }
       this._log.log('pipeline', `Handler ID confirmed: ${this._binaryHandlerId} - audio deferred`);
       this._isStreaming = false;
       return;
@@ -361,6 +383,26 @@ export class PipelineManager {
     // The reconnect handler covers WebSocket drops.
   }
 
+  /**
+   * Called by the wake chime choreography once the dedupe window and chime
+   * have elapsed and the mic is live again. If the init event has already
+   * delivered the binary handler ID, audio starts streaming immediately.
+   * Otherwise latch _deferredAudioReady so start() begins the audio itself
+   * when init lands. Without the latch the two sides can miss each other:
+   * the unmute timer sees no handler ID and skips, then start() sees
+   * defer_audio_start and returns, and the run starves with the mic open
+   * until the watchdogs tear it down (issue kiosk-satellite#236).
+   */
+  resumeDeferredAudio() {
+    if (this._binaryHandlerId) {
+      this._card.audio.startSending(() => this._binaryHandlerId);
+      this._isStreaming = true;
+      return;
+    }
+    this._deferredAudioReady = true;
+    this._log.log('pipeline', 'Deferred audio ready before handler ID - audio will start when init arrives');
+  }
+
   async stop() {
     this._clearScheduledWork();
 
@@ -379,6 +421,7 @@ export class PipelineManager {
     this._card.audio.stopBuffering?.({ clear: true });
     this._binaryHandlerId = null;
     this._isStreaming = false;
+    this._deferredAudioReady = false;
 
     if (this._unsubscribe) {
       try { await this._unsubscribe(); } catch (_) { /* cleanup */ }

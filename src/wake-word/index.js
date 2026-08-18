@@ -1193,10 +1193,11 @@ export class WakeWordManager {
           this._setMicTracksMuted(false);
           // Discard any buffered silence/audio captured during the dedupe
           // window + chime, then resume streaming into the active pipeline.
+          // resumeDeferredAudio latches instead of skipping when the init
+          // round-trip is still in flight, so a slow subscribe can no
+          // longer leave the run without audio (kiosk-satellite#236).
           audio.audioBuffer = [];
-          if (session.pipeline.binaryHandlerId) {
-            audio.startSending(() => session.pipeline.binaryHandlerId);
-          }
+          session.pipeline.resumeDeferredAudio();
           // Mic is live again - let updateForState() re-enable reactive on
           // the next state change, and flip it on right now for the current
           // state since we're already mid-interaction.
@@ -1225,9 +1226,7 @@ export class WakeWordManager {
         this._setMicTracksMuted(false);
         const audio = session.audio;
         audio.audioBuffer = [];
-        if (session.pipeline.binaryHandlerId) {
-          audio.startSending(() => session.pipeline.binaryHandlerId);
-        }
+        session.pipeline.resumeDeferredAudio();
         session.ui.setReactiveSuppressed(false);
         // Mirror the wake-sound-on path: once the mic is live again, kick
         // the reactive bar over to mic-driven rendering.  Without this,

@@ -887,6 +887,10 @@ export async function triggerWake(session, opts = {}) {
         session.audio.setMicTracksMuted(false);
         try { session.ui.setReactiveSuppressed(false); } catch (_) { /* ignore */ }
         if (wakeSound) session.tts.playChime('wake');
+        // The run was started with defer_audio_start and the chime
+        // choreography that would normally resume audio is unavailable:
+        // start (or latch) it here so the turn doesn't starve.
+        session.pipeline.resumeDeferredAudio();
       }
       return;
     }
