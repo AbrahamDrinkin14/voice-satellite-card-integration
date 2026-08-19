@@ -16,6 +16,7 @@ import { preloadChimes } from '../audio/chime.js';
 import { startDiagnostics } from '../memory-sampler.js';
 import { mountOverlayToast } from '../toast/overlay-ui.js';
 import { loadPanelConfig, savePanelConfig } from '../shared/server-settings.js';
+import { installExternalSettings } from '../shared/external-settings.js';
 
 const ENGINE_KEY = '__vsEngine';
 const CONFIG_KEY = 'vs-panel-config';
@@ -74,6 +75,10 @@ function migrateMicDsp() {
 export function initEngine() {
   if (window[ENGINE_KEY]) return;
   window[ENGINE_KEY] = true;
+
+  // Kiosk apps change browser-local settings through this hook; it must
+  // exist even when no session ever starts (auto_start off).
+  installExternalSettings();
 
   console.info(
     `%c VOICE-SATELLITE-ENGINE %c v${VERSION} `,
