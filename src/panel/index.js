@@ -440,24 +440,24 @@ class VoiceSatellitePanel extends HTMLElement {
 
     const preForm = this.querySelector(`.${P}-ss-pre-container ha-form`);
     if (preForm) {
-      preForm.data = Object.assign({}, this._config);
+      preForm.data = this._ssFormData();
       if (rebuildSchemas) preForm.schema = buildScreensaverPreSchema(this._config);
     }
 
     const typeForm = this.querySelector(`.${P}-ss-type-container ha-form`);
     if (typeForm) {
-      typeForm.data = Object.assign({}, this._config);
+      typeForm.data = this._ssFormData();
       if (rebuildSchemas) typeForm.schema = buildScreensaverTypeSchema(this._config);
     }
 
     const postForm = this.querySelector(`.${P}-ss-post-container ha-form`);
     if (postForm) {
-      postForm.data = Object.assign({}, this._config);
+      postForm.data = this._ssFormData();
       if (rebuildSchemas) postForm.schema = buildScreensaverPostSchema(this._config);
     }
 
     const fkForm = this.querySelector(`.${P}-ss-fk-form ha-form`);
-    if (fkForm) fkForm.data = Object.assign({}, this._config);
+    if (fkForm) fkForm.data = this._ssFormData();
 
     this._syncFkSectionVisibility();
     this._updateScreensaverMediaVisibility();
@@ -537,6 +537,13 @@ class VoiceSatellitePanel extends HTMLElement {
   }
 
   _onSettingsChange(newData) {
+    // Inside Kiosk Satellite the screensaver toggle renders forced-off and
+    // disabled (_ssFormData); a form echoing its data back must not
+    // persist that display value into the shared per-satellite profile.
+    if (kiosk.screensaverSuppressed() && newData
+        && Object.prototype.hasOwnProperty.call(newData, 'screensaver_enabled')) {
+      delete newData.screensaver_enabled;
+    }
     const prevScreensaverType = this._config.screensaver_type;
     const prevScreensaverEnabled = this._config.screensaver_enabled;
     const prevMuteTimers = this._config.mute_timers;
@@ -592,21 +599,21 @@ class VoiceSatellitePanel extends HTMLElement {
 
     const preForm = this.querySelector(`.${P}-ss-pre-container ha-form`);
     if (preForm) {
-      preForm.data = Object.assign({}, this._config);
+      preForm.data = this._ssFormData();
       if (ssStructureChanged) preForm.schema = buildScreensaverPreSchema(this._config);
     }
     const typeForm = this.querySelector(`.${P}-ss-type-container ha-form`);
     if (typeForm) {
-      typeForm.data = Object.assign({}, this._config);
+      typeForm.data = this._ssFormData();
       if (ssStructureChanged) typeForm.schema = buildScreensaverTypeSchema(this._config);
     }
     const postForm = this.querySelector(`.${P}-ss-post-container ha-form`);
     if (postForm) {
-      postForm.data = Object.assign({}, this._config);
+      postForm.data = this._ssFormData();
       if (ssStructureChanged) postForm.schema = buildScreensaverPostSchema(this._config);
     }
     const fkForm = this.querySelector(`.${P}-ss-fk-form ha-form`);
-    if (fkForm) fkForm.data = Object.assign({}, this._config);
+    if (fkForm) fkForm.data = this._ssFormData();
     this._syncFkSectionVisibility();
     this._updateScreensaverMediaVisibility();
     this._updateStatus();
@@ -732,7 +739,8 @@ class VoiceSatellitePanel extends HTMLElement {
   _syncFkSectionVisibility() {
     const section = this.querySelector(`.${P}-ss-fk`);
     if (!section) return;
-    const enabled = this._config.screensaver_enabled === true;
+    const enabled = !kiosk.screensaverSuppressed()
+      && this._config.screensaver_enabled === true;
     section.style.display = enabled ? '' : 'none';
     if (!enabled) return;
 
@@ -760,14 +768,26 @@ class VoiceSatellitePanel extends HTMLElement {
     if (note) note.style.display = kiosk.screensaverSuppressed() ? '' : 'none';
   }
 
+  /** The data the screensaver ha-forms display. Inside Kiosk Satellite the
+   *  screensaver is always off, so the enable toggle renders off (and the
+   *  schema renders it disabled) without touching the stored config -
+   *  another browser on the same satellite keeps its own choice. */
+  _ssFormData() {
+    const data = Object.assign({}, this._config);
+    if (kiosk.screensaverSuppressed()) data.screensaver_enabled = false;
+    return data;
+  }
+
   /** Toggle visibility of the Media Browse widget - only shown when
    *  the screensaver is enabled AND type='media'. */
   _updateScreensaverMediaVisibility() {
     const container = this.querySelector(`.${P}-ss-media`);
     if (!container) return;
-    const visible =
-      this._config.screensaver_enabled === true &&
-      this._config.screensaver_type === 'media';
+    // Inside Kiosk Satellite the screensaver is always off, so every
+    // enabled-gated widget stays hidden no matter what the config says.
+    const ssOn = !kiosk.screensaverSuppressed()
+      && this._config.screensaver_enabled === true;
+    const visible = ssOn && this._config.screensaver_type === 'media';
     container.style.display = visible ? 'flex' : 'none';
     if (visible) this._renderScreensaverMediaCurrent();
 
@@ -776,10 +796,7 @@ class VoiceSatellitePanel extends HTMLElement {
     const hint = this.querySelector(`.${P}-ss-website-hint`);
     if (hint) {
       hint.style.display =
-        this._config.screensaver_enabled === true &&
-        this._config.screensaver_type === 'website'
-          ? ''
-          : 'none';
+        ssOn && this._config.screensaver_type === 'website' ? '' : 'none';
     }
 
     // Clock color row - only shown when enabled AND type='clock'.
@@ -787,9 +804,7 @@ class VoiceSatellitePanel extends HTMLElement {
     // square next to its label instead of stretching full-width.
     const colorRow = this.querySelector(`.${P}-ss-clock-color:not(.${P}-ss-small-clock-color)`);
     if (colorRow) {
-      const colorVisible =
-        this._config.screensaver_enabled === true &&
-        this._config.screensaver_type === 'clock';
+      const colorVisible = ssOn && this._config.screensaver_type === 'clock';
       colorRow.style.display = colorVisible ? 'flex' : 'none';
       if (colorVisible) this._syncClockColorInput();
     }
@@ -799,7 +814,7 @@ class VoiceSatellitePanel extends HTMLElement {
     const smallColorRow = this.querySelector(`.${P}-ss-small-clock-color`);
     if (smallColorRow) {
       const smallVisible =
-        this._config.screensaver_enabled === true &&
+        ssOn &&
         this._config.screensaver_type !== 'clock' &&
         this._config.screensaver_small_clock === true;
       smallColorRow.style.display = smallVisible ? 'flex' : 'none';
@@ -810,8 +825,7 @@ class VoiceSatellitePanel extends HTMLElement {
     // margin otherwise so the disabled layout doesn't get a stray gap.
     const typeContainer = this.querySelector(`.${P}-ss-type-container`);
     if (typeContainer) {
-      typeContainer.style.marginTop =
-        this._config.screensaver_enabled === true ? '24px' : '0';
+      typeContainer.style.marginTop = ssOn ? '24px' : '0';
     }
   }
 
@@ -1830,7 +1844,7 @@ class VoiceSatellitePanel extends HTMLElement {
           <div class="${P}-form-loading">Loading settings...</div>
         </div>
         <div class="${P}-ss-ks-note" style="display: none;">
-          Kiosk Satellite is showing its own screensaver on this device, so the Voice Satellite screensaver stays off here. You can change this in the Kiosk Satellite settings, under Voice Satellite.
+          This device runs inside Kiosk Satellite, which manages the screen itself, so the Voice Satellite screensaver is always off here. Configure the screensaver in the Kiosk Satellite settings instead.
         </div>
         <div class="${P}-ss-clock-color ${P}-ss-small-clock-color" style="display: none;">
           <div class="${P}-ss-clock-color-text">
@@ -3207,7 +3221,7 @@ class VoiceSatellitePanel extends HTMLElement {
     const makeSsForm = (schema) => {
       const f = document.createElement('ha-form');
       f.hass = this._hass;
-      f.data = Object.assign({}, this._config);
+      f.data = this._ssFormData();
       f.schema = schema;
       f.computeLabel = (s) => allLabels[s.name] || '';
       f.computeHelper = (s) => allHelpers[s.name] || '';

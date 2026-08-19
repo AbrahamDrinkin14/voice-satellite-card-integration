@@ -365,37 +365,20 @@ export function bringToFront() {
   return false;
 }
 
-/* Screensaver suppression - Kiosk Satellite only.  When the app's own
- * screensaver is enabled and its "Turn off the Voice Satellite screensaver"
- * toggle is on, the card's screensaver stands down so the two never run at
- * once.  The answer is fixed for the life of the page: the app reloads the
- * page whenever it changes, so one query at boot is enough. */
-let _ksScreensaverSuppressed = false;
+/* Screensaver suppression - Kiosk Satellite only.  The kiosk app owns the
+ * screen and its own screensaver management, so inside it the card's
+ * screensaver ALWAYS stands down - no query, no toggle, regardless of the
+ * kiosk app's version or settings.  Always false outside Kiosk Satellite
+ * (Fully Kiosk and Kiosker have no built-in screensaver to defer to). */
 
-/** Sync, from cache: should the card's own screensaver stand down? */
+/** Sync: should the card's own screensaver stand down? */
 export function screensaverSuppressed() {
-  return _ksScreensaverSuppressed;
+  return ksPresent();
 }
 
-/**
- * Ask the kiosk app whether the card's screensaver should stand down.
- * Resolves the fresh answer and caches it for [screensaverSuppressed].
- * Always false outside Kiosk Satellite (Fully Kiosk and Kiosker have no
- * built-in screensaver to defer to).
- */
+/** Async form, kept for callers that await the answer. */
 export async function confirmScreensaverSuppressed() {
-  if (!ksPresent()
-      || typeof window.kioskSatellite.getScreensaverSuppressed !== 'function') {
-    _ksScreensaverSuppressed = false;
-    return false;
-  }
-  try {
-    _ksScreensaverSuppressed =
-      (await window.kioskSatellite.getScreensaverSuppressed()) === true;
-  } catch (_) {
-    _ksScreensaverSuppressed = false;
-  }
-  return _ksScreensaverSuppressed;
+  return ksPresent();
 }
 
 /**

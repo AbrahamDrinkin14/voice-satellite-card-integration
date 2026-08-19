@@ -68,11 +68,55 @@ export function installExternalSettings() {
      */
     get() {
       const config = Object.assign({}, DEFAULT_CONFIG, getStoredConfig());
+      const session = window.__vsSession;
+      const satellite = getStoredEntity() || config.satellite_entity || null;
       return {
         config: pickExternal(config),
         skins: getSkinOptions(),
-        satellite: getStoredEntity() || config.satellite_entity || null,
+        satellite,
+        engine: {
+          running: !!(session && session.isStarted),
+          canStart: !!(session && satellite),
+        },
       };
+    },
+
+    /**
+     * Start the engine, exactly like the panel's Start button: ensure an
+     * engine card exists for UI rendering, clear the stop flags, start on
+     * the next frame. No-op without a session or satellite binding.
+     */
+    startEngine() {
+      const session = window.__vsSession;
+      const stored = Object.assign({}, DEFAULT_CONFIG, getStoredConfig());
+      const entityId = getStoredEntity() || stored.satellite_entity || null;
+      if (!session || session.isStarted || !entityId) {
+        return { ok: false, running: !!(session && session.isStarted) };
+      }
+      if (session._cards.size === 0) {
+        const card = document.createElement('voice-satellite-card');
+        card._engineOwned = true;
+        card.setConfig(Object.assign({}, stored, { satellite_entity: entityId }));
+        card.style.display = 'none';
+        document.body.appendChild(card);
+        const hass = currentHass();
+        if (hass) card.hass = hass;
+      }
+      session._userStopped = false;
+      session._startAttempted = false;
+      requestAnimationFrame(() => {
+        if (!session.isStarted) session.start();
+      });
+      return { ok: true, running: true };
+    },
+
+    /** Stop the engine, exactly like the panel's Stop button. */
+    stopEngine() {
+      const session = window.__vsSession;
+      if (!session || !session.isStarted) return { ok: false, running: false };
+      session._userStopped = true;
+      session.teardown();
+      return { ok: true, running: false };
     },
 
     /**

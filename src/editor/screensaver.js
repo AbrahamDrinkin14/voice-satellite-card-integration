@@ -38,11 +38,23 @@ const SMALL_CLOCK_POSITION_OPTIONS = [
  *                our built-in one.
  */
 
+/**
+ * Inside Kiosk Satellite the app owns the screen and runs its own
+ * screensaver management, so the card's screensaver is always off there:
+ * the section collapses to a disabled toggle and nothing else.
+ */
+function inKioskSatellite() {
+  return typeof window !== 'undefined'
+    && !!window.kioskSatellite
+    && window.kioskSatellite.platform === 'kiosksatellite';
+}
+
 export function buildScreensaverPreSchema(cfg) {
-  const enabled = cfg?.screensaver_enabled === true;
+  const inKiosk = inKioskSatellite();
+  const enabled = !inKiosk && cfg?.screensaver_enabled === true;
   const type = cfg?.screensaver_type || 'black';
   const fields = [
-    { name: 'screensaver_enabled', selector: { boolean: {} } },
+    { name: 'screensaver_enabled', selector: { boolean: {} }, disabled: inKiosk },
   ];
   if (enabled) {
     fields.push(
@@ -77,7 +89,7 @@ export function buildScreensaverPreSchema(cfg) {
 }
 
 export function buildScreensaverTypeSchema(cfg) {
-  if (cfg?.screensaver_enabled !== true) return [];
+  if (inKioskSatellite() || cfg?.screensaver_enabled !== true) return [];
   return [
     {
       name: 'screensaver_type',
@@ -88,6 +100,7 @@ export function buildScreensaverTypeSchema(cfg) {
 }
 
 export function buildScreensaverPostSchema(cfg) {
+  if (inKioskSatellite()) return [];
   const enabled = cfg?.screensaver_enabled === true;
   const type = cfg?.screensaver_type || 'black';
 
