@@ -127,6 +127,13 @@ async function bootstrapEngine() {
     try {
       console.info('[VS] pagehide — tearing down session');
       session.teardown();
+      // The page is over: this is the one teardown that also stops the
+      // hass observer (a Stop-button teardown must leave it running so
+      // the session keeps reacting to settings and can restart).
+      if (session._hassObserverInterval) {
+        clearInterval(session._hassObserverInterval);
+        session._hassObserverInterval = null;
+      }
     } catch (e) {
       console.warn('[VS] pagehide teardown failed:', e);
     }

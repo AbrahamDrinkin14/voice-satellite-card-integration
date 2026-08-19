@@ -505,10 +505,11 @@ export class VoiceSatelliteSession {
     try { this._doubleTap.teardown(); } catch (e) { this._logger.log('session', `doubleTap.teardown: ${e.message || e}`); }
     try { this._visibility.teardown(); } catch (e) { this._logger.log('session', `visibility.teardown: ${e.message || e}`); }
     try { this._screensaver.teardown(); } catch (e) { this._logger.log('session', `screensaver.teardown: ${e.message || e}`); }
-    if (this._hassObserverInterval) {
-      clearInterval(this._hassObserverInterval);
-      this._hassObserverInterval = null;
-    }
+    // The hass observer deliberately survives teardown: it is what notices
+    // entity changes and restarts a stopped session (attemptStart), and a
+    // Stop button that also killed the feed left the page deaf to every
+    // settings change until a reload. The pagehide teardown clears it
+    // explicitly (engine bootstrap) - the one case the page is really over.
     this._hasStarted = false;
     this._starting = false;
     this._startAttempted = false;
