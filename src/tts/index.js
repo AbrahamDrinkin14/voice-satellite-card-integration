@@ -62,6 +62,8 @@ export class TtsManager {
     // Remote media player state monitoring
     this._remoteTarget = null;
     this._remoteSawPlaying = false;
+    this._remoteSawOurContent = false;
+    this._remoteMediaPath = null;
     this._remoteInitialState = null;
     this._remoteInitialContentId = null;
 
@@ -149,6 +151,17 @@ export class TtsManager {
     if (ttsTarget) {
       this._remoteTarget = ttsTarget;
       this._remoteSawPlaying = false;
+      this._remoteSawOurContent = false;
+      // The path that identifies OUR audio in the remote's reported
+      // media_content_id. Cast (and most players) echo the resolved URL
+      // back in their state, so /api/tts_proxy/<token>.mp3 appearing in
+      // it is proof the player is on our content, whatever origin or
+      // auth signature got wrapped around it.
+      try {
+        this._remoteMediaPath = new URL(urlPath, window.location.origin).pathname;
+      } catch (_) {
+        this._remoteMediaPath = null;
+      }
       const remoteEntity = this._card.hass?.states?.[ttsTarget];
       this._remoteInitialState = remoteEntity?.state;
       this._remoteInitialContentId = remoteEntity?.attributes?.media_content_id || null;
@@ -421,6 +434,8 @@ export class TtsManager {
     this._playing = false;
     this._remoteTarget = null;
     this._remoteSawPlaying = false;
+    this._remoteSawOurContent = false;
+    this._remoteMediaPath = null;
     this._remoteInitialState = null;
     this._remoteInitialContentId = null;
     this._pendingTtsEndUrl = null;
@@ -693,21 +708,44 @@ export class TtsManager {
   checkRemotePlayback(hass) {
     if (!this._playing || !this._remoteTarget) return;
 
-    // Once the server-measured duration is known, the duration-based
-    // timer in setAudioDuration() is the source of truth for completion.
-    // Entity-state polling is unreliable on speakers that have other
-    // media active: announce-mode may resume the user's content with the
-    // same media_content_id (firing path 2 prematurely), or briefly blip
-    // through 'paused'/'idle' (firing path 1 prematurely). The duration
-    // timer is unaffected by either.
-    if (this._serverDuration) return;
-
     const entity = hass.states?.[this._remoteTarget];
     if (!entity) return;
 
     const state = entity.state;
     const contentId = entity.attributes?.media_content_id || null;
     const isActive = state === 'playing' || state === 'buffering';
+    // The player reporting our tts_proxy path IS our playback - no other
+    // media in the house carries this one-time token.
+    if (isActive && contentId && this._remoteMediaPath
+      && contentId.includes(this._remoteMediaPath)) {
+      this._remoteSawOurContent = true;
+    }
+
+    // Once the server-measured duration is known, the duration-based
+    // timer in setAudioDuration() is normally the source of truth for
+    // completion. Entity-state polling is unreliable on speakers that
+    // have other media active: announce-mode may resume the user's
+    // content with the same media_content_id (firing path 2 prematurely),
+    // or briefly blip through 'paused'/'idle' (firing path 1 prematurely).
+    // The duration timer is unaffected by either.
+    //
+    // The one signal that outranks it: the player identified OUR content
+    // by URL and then stopped. Neither failure mode above involves the
+    // player reporting our token, so this edge is unambiguous - and the
+    // server measurement can be several-fold too long (a streamed VBR MP3
+    // has no Xing header, so mutagen extrapolates the whole file from the
+    // first frame's bitrate), which left the turn hanging tens of seconds
+    // after the speaker went quiet.
+    if (this._serverDuration) {
+      if (this._remoteSawOurContent && !isActive) {
+        this._log.log(
+          'tts',
+          `Remote finished our content (state: ${state}) - completing ahead of duration timer`,
+        );
+        this._onComplete();
+      }
+      return;
+    }
 
     // ── Detect our content started playing ──
     if (!this._remoteSawPlaying) {
@@ -830,6 +868,8 @@ export class TtsManager {
     this._playing = false;
     this._remoteTarget = null;
     this._remoteSawPlaying = false;
+    this._remoteSawOurContent = false;
+    this._remoteMediaPath = null;
     this._remoteInitialState = null;
     this._remoteInitialContentId = null;
     this._pendingTtsEndUrl = null;

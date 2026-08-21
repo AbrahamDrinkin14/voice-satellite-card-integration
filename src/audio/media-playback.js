@@ -30,43 +30,65 @@ function isLoopbackOrigin(origin) {
   }
 }
 
+/** The path (with query and fragment) of a URL or bare path, root-relative. */
+function toRootRelative(urlPath) {
+  if (urlPath.startsWith('http://') || urlPath.startsWith('https://')) {
+    try {
+      const u = new URL(urlPath);
+      return u.pathname + u.search + u.hash;
+    } catch (_) {
+      return null;
+    }
+  }
+  return urlPath.startsWith('/') ? urlPath : `/${urlPath}`;
+}
+
 /**
- * Normalize a URL path to an absolute URL that devices OTHER than this one
- * can fetch. Use for any URL handed off externally (media_player.play_media
- * on a remote speaker); use buildMediaUrl for URLs played on this device.
+ * Normalize a URL path for a media_player.play_media handed to a device
+ * OTHER than this one. Use for any URL played off-box (a remote speaker);
+ * use buildMediaUrl for audio this page plays itself.
  *
  * Normally identical to buildMediaUrl. The difference is Kiosk Satellite,
  * which serves the page through an in-app loopback proxy (127.0.0.1) to
  * satisfy the secure-context requirement - an origin only this device can
- * reach. In that case relative paths resolve against Home Assistant's real
- * network address (internal_url, else external_url) instead, and absolute
- * loopback URLs (e.g. a retry of a previously built URL) are re-based the
- * same way.
+ * reach, and one a speaker asked to fetch it just fails on (issue #121).
+ *
+ * Two ways out of that origin, in order:
+ *   1. Home Assistant's own configured address (internal_url, else
+ *      external_url), when the instance has one.
+ *   2. Otherwise the bare path. Home Assistant resolves a root-relative
+ *      media_content_id against get_url() when it hands the media to the
+ *      player, which is how its own tts.speak reaches a Cast device from
+ *      an instance with neither URL configured - and it signs the path on
+ *      the way, so authenticated paths work too. Guessing wrongly here is
+ *      not better than letting the server answer.
  *
  * @param {object} hass - hass object (for config.internal_url/external_url)
  * @param {string} urlPath - URL or path to normalize
- * @returns {string} Absolute URL reachable from other devices
+ * @returns {string} A URL, or a root-relative path for HA to resolve
  */
 export function buildRemoteMediaUrl(hass, urlPath) {
   if (!isLoopbackOrigin(window.location.origin)) {
     return buildMediaUrl(urlPath);
   }
   const configured = hass?.config?.internal_url || hass?.config?.external_url;
+  const relative = toRootRelative(urlPath);
   if (!configured) {
-    // No better base known - keep the old behavior rather than emit garbage.
-    return buildMediaUrl(urlPath);
+    // Anything already pointing somewhere reachable is left alone; only the
+    // loopback origin has to be escaped.
+    if (relative === null) return urlPath;
+    if ((urlPath.startsWith('http://') || urlPath.startsWith('https://'))
+      && !isLoopbackOrigin(urlPath)) {
+      return urlPath;
+    }
+    return relative;
   }
   const base = configured.replace(/\/+$/, '');
   if (urlPath.startsWith('http://') || urlPath.startsWith('https://')) {
     if (!isLoopbackOrigin(urlPath)) return urlPath;
-    try {
-      const u = new URL(urlPath);
-      return base + u.pathname + u.search + u.hash;
-    } catch (_) {
-      return urlPath;
-    }
+    return relative === null ? urlPath : base + relative;
   }
-  return urlPath.startsWith('/') ? base + urlPath : `${base}/${urlPath}`;
+  return base + relative;
 }
 
 /**
