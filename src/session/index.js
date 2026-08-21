@@ -585,7 +585,7 @@ export class VoiceSatelliteSession {
     return true;
   }
 
-  /** Release the mic + wake word and surface the persistent muted toast. */
+  /** Release the mic + wake word and surface the muted toast. */
   _suspendForMute() {
     this._logger.log('session', 'Muted - releasing mic and wake word');
     try { this._wakeWord?.release('muted'); } catch (e) { this._logger.log('session', `mute: wakeWord.release: ${e.message || e}`); }
@@ -613,16 +613,15 @@ export class VoiceSatelliteSession {
   }
 
   /**
-   * Show the persistent "microphone muted" status toast. Closing it by
-   * hand silences it for the rest of the page load: muting is a routine
-   * habit on some dashboards, and the toast covers part of them every
-   * time. A reload brings it back.
+   * Show the "microphone muted" status toast. It auto-dismisses on the
+   * warn timeout; closing it by hand silences it for the rest of the page
+   * load: muting is a routine habit on some dashboards, and the toast
+   * covers part of them every time. A reload brings it back.
    */
   showMutedToast() {
     this._toast.show({
       id: 'mic-muted',
-      severity: 'info',
-      persistent: true,
+      severity: 'warn',
       suppressAfterDismiss: true,
       category: 'Microphone',
       description: 'Muted - voice control is off',

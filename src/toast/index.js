@@ -14,8 +14,8 @@
  *     category: string,        // short bucket shown inline before the description
  *     description: string,     // one-liner explaining what happened
  *     persistent?: boolean,    // stays until dismissed/replaced, overriding
- *                              // the severity's auto-dismiss timeout (used
- *                              // for ongoing states like "microphone muted")
+ *                              // the severity's auto-dismiss timeout (for
+ *                              // ongoing states that must stay visible)
  *     suppressAfterDismiss?: boolean, // once the user closes it, this id
  *                              // stays silent for the rest of the page load.
  *                              // For recurring state toasts the user has
