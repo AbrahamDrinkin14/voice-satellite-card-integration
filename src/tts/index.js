@@ -14,6 +14,9 @@ import { Timing } from '../constants.js';
 
 /** Safety ceiling so the UI never gets stuck if remote state monitoring fails */
 const REMOTE_SAFETY_TIMEOUT = 30_000;
+// How long a tts-audio-duration that arrived before play() stays
+// claimable when neither side carries a URL to match by token.
+const EARLY_DURATION_MAX_AGE_MS = 15_000;
 
 /** Safety ceiling for native (Kiosk Satellite) playback: the app guarantees
  *  exactly one ended event per sound, so this only catches an event lost
@@ -80,6 +83,16 @@ export class TtsManager {
 
     // TTS URL from the current play() call - used to correlate tts-audio-duration events
     this._ttsUrl = null;
+    // A tts-audio-duration that arrived before play(). The server measures
+    // the artifact right after it forwards tts-end, but the two travel on
+    // different sockets: the duration rides the satellite subscription
+    // (this page's connection) while tts-end rides the pipeline
+    // subscription, which under Kiosk Satellite's native transport is
+    // relayed through the app. A fast local engine (Piper) lets the
+    // measurement win that race, and a duration discarded here left every
+    // remote turn on the 30s safety timeout. Held until play() claims it
+    // by token; {duration, ttsUrl, at}.
+    this._earlyDuration = null;
 
     // Stop word activation delay timer
     this._stopWordTimer = null;
@@ -207,6 +220,7 @@ export class TtsManager {
         this._log.log('tts', 'Remote safety timeout - forcing completion');
         this._onComplete();
       }, REMOTE_SAFETY_TIMEOUT);
+      this._applyEarlyDuration();
       return;
     }
 
@@ -215,11 +229,50 @@ export class TtsManager {
     // a self-signed HA certificate the browser would refuse). Streamed, so
     // speech starts while the server is still synthesizing, same as the
     // browser element. Any refusal falls back to the element below.
+    this._applyEarlyDuration();
     if (supportsNativeSound()) {
       this._playNative(url, isRetry);
       return;
     }
     this._playBrowser(url, isRetry);
+  }
+
+  /**
+   * Claim a duration that beat play() to the page (see _earlyDuration).
+   * Only the current turn's token may claim it: a held value from a turn
+   * that never played (video on screen, suppressed TTS) must not shorten
+   * the next one. Without a URL on either side a short freshness window
+   * stands in for the token match.
+   */
+  _applyEarlyDuration() {
+    const early = this._earlyDuration;
+    if (!early) return;
+    this._earlyDuration = null;
+    const ageMs = performance.now() - early.at;
+    const mine = this._sameTtsPath(early.ttsUrl, this._ttsUrl);
+    const fresh = ageMs < EARLY_DURATION_MAX_AGE_MS;
+    if (mine === false || (mine === null && !fresh)) {
+      this._log.log(
+        'tts',
+        `Dropping held duration (${early.duration}s, ${Math.round(ageMs)}ms old) - not this turn's audio`,
+      );
+      return;
+    }
+    this._log.log('tts', `Applying duration held from before playback (${Math.round(ageMs)}ms early)`);
+    this.setAudioDuration(early.duration, early.ttsUrl);
+  }
+
+  /**
+   * Whether two TTS URLs name the same tts_proxy artifact, comparing
+   * paths so an absolute URL and a root-relative one still match.
+   * @returns {boolean|null} null when either side is missing
+   */
+  _sameTtsPath(a, b) {
+    if (!a || !b) return null;
+    const pathOf = (u) => {
+      try { return new URL(u, window.location.origin).pathname; } catch (_) { return u; }
+    };
+    return pathOf(a) === pathOf(b);
   }
 
   /**
@@ -667,7 +720,10 @@ export class TtsManager {
     const baseLog = `server=${duration}s el.duration=${elDurationStr} el.currentTime=${elCurrentStr}`;
 
     if (!this._playing) {
-      this._log.log('tts', `Audio duration received but not playing (informational): ${baseLog}`);
+      // Hold it: play() for this token may be moments away (its tts-end
+      // is still in flight on the other socket). See _earlyDuration.
+      this._earlyDuration = { duration, ttsUrl: ttsUrl || null, at: performance.now() };
+      this._log.log('tts', `Audio duration received before playback - holding for play(): ${baseLog}`);
       return;
     }
     if (!this._remoteTarget) {
