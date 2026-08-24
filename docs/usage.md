@@ -135,6 +135,16 @@ target:
 
 When fired, the wake chime plays and the mic begins capturing speech for STT. The rest of the pipeline (intent -> TTS -> optional continue-conversation) runs normally. Multi-turn follow-ups are preserved - once the assistant ends the turn without a continue, the mic is released.
 
+The optional `wake_word_slot` field routes the turn as if that wake-word slot had been detected, so the slot's configured pipeline handles STT, the conversation agent, and TTS. This lets buttons and automations reach Pipeline 2 the same way saying Wake word 2 would. Omitting it keeps the existing behavior (Pipeline 1). Follow-up turns stay on the selected slot's pipeline.
+
+```yaml
+action: voice_satellite.wake
+target:
+  entity_id: assist_satellite.living_room_tablet
+data:
+  wake_word_slot: 2
+```
+
 Common uses:
 
 - A dashboard button that says "Talk to Assist" - wire its `tap_action` to call this service

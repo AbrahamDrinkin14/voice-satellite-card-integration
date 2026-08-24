@@ -21,7 +21,7 @@ Each satellite device exposes configuration entities on its device page (**Setti
 | Entity | Type | Description |
 |--------|------|-------------|
 | **Announcement display duration** | Number | How long (1-60 seconds) to show the announcement text on screen after playback completes |
-| **Pipeline 1** | Select | Assist pipeline used when Wake word 1 fires. This is the device's default pipeline and the one used by every non-wake-word entry point (announcements, `start_conversation`, `voice_satellite.wake`) |
+| **Pipeline 1** | Select | Assist pipeline used when Wake word 1 fires. This is the device's default pipeline and the one used by every non-wake-word entry point (announcements, `start_conversation`, `voice_satellite.wake` - unless the action's `wake_word_slot` field selects slot 2) |
 | **Pipeline 2** | Select | Assist pipeline used when Wake word 2 fires. Only shown when Wake word 2 is enabled (not "Disabled"). "Preferred" falls back to Pipeline 1 |
 | **Finish delay** | Number | How long (0-15 seconds) to keep the overlay visible after TTS finishes so you can continue reading the response. 0 dismisses immediately (default) |
 | **Finished speaking detection** | Select | VAD sensitivity - how aggressively to detect end of speech |

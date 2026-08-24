@@ -100,7 +100,10 @@ export function dispatchSatelliteEvent(card, event) {
     // surfaces the mic UI (no-op when already in front). setState dismisses
     // the kiosk screensaver once the turn enters an interacting state.
     kiosk.bringToFront();
-    card.onWakeAction?.();
+    // Optional slot routing: run the turn through that wake-word slot's
+    // pipeline, same as if the slot's wake word had been detected.
+    const slot = Number(data?.wake_word_slot);
+    card.onWakeAction?.(slot === 1 || slot === 2 ? { wakeWordSlot: slot } : undefined);
     return;
   }
 
