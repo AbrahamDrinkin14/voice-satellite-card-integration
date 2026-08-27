@@ -26,7 +26,7 @@
  *   - screensaver_website_url
  *   - screensaver_small_clock, screensaver_small_clock_position,
  *     screensaver_small_clock_show_date, screensaver_small_clock_color
- *   - screensaver_suppress_external
+ *   - screensaver_suppress_external (ignored inside Kiosk Satellite)
  */
 
 import { INTERACTING_STATES, State } from '../constants.js';
@@ -252,7 +252,16 @@ export class ScreensaverManager {
     const newSmallClockShowDate = cfg.screensaver_small_clock_show_date === true;
     const newSmallClockColor = normalizeRgbString(cfg.screensaver_small_clock_color, '250,250,250');
     const newPixelShift = cfg.screensaver_pixel_shift === true;
-    const newSuppressExternal = cfg.screensaver_suppress_external || '';
+    // Kiosk Satellite already pauses its own screensaver for the whole
+    // voice interaction, and its master Screensaver switch is an enable,
+    // not a dismiss: forcing it off every 5 seconds leaves the screensaver
+    // disabled until something turns it back on. The editor hides the
+    // field inside Kiosk Satellite, but the value can still arrive from a
+    // desktop browser or a Fully Kiosk setup that migrated over, so
+    // ignore it at runtime there.
+    const newSuppressExternal = kiosk.platform() === 'kiosksatellite'
+      ? ''
+      : (cfg.screensaver_suppress_external || '');
 
     const settingsChanged =
       newEnabled !== this._enabled ||

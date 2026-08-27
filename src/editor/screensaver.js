@@ -194,5 +194,5 @@ export const screensaverHelpers = {
   screensaver_clock_scale: t(null, 'editor.screensaver.helper_clock_scale', 'Scales the time and date relative to the default size. Browsers and kiosk apps report their viewport differently, so the same clock can look smaller on some tablets (e.g. iPads) - raise this here to match your other devices. Stored per browser.'),
   screensaver_small_clock: t(null, 'editor.screensaver.helper_small_clock', 'Show a small clock in a corner of the screensaver.'),
   screensaver_small_clock_show_date: t(null, 'editor.screensaver.helper_small_clock_show_date', 'Show the date below the time (short format).'),
-  screensaver_suppress_external: t(null, 'editor.screensaver.helper_suppress_external', "The selected switch is turned off for the duration of each voice interaction, then left alone so its owner (e.g. Fully Kiosk) can resume its own idle timer. Useful to manage Fully Kiosk's screensaver."),
+  screensaver_suppress_external: t(null, 'editor.screensaver.helper_suppress_external', "The selected switch is turned off for the duration of each voice interaction, then left alone so its owner (e.g. Fully Kiosk) can resume its own idle timer. Useful to manage Fully Kiosk's screensaver. Ignored inside Kiosk Satellite, which pauses its own screensaver during voice interactions."),
 };
