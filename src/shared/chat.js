@@ -1,6 +1,7 @@
 /** Chat rendering state and incremental streaming updates. */
 
 import { PacedScroller } from './paced-scroll.js';
+import { stripSentimentTags, stripSentimentTagsStreaming } from './sentiment-tags.js';
 
 const FADE_GROUPS = 4;
 const CHARS_PER_GROUP = 2;
@@ -47,11 +48,23 @@ export class ChatManager {
     return (this._card.config || {})[key] !== false;
   }
 
+  /**
+   * Response text as it should be painted.  With "Hide sentiment tags"
+   * on, bracketed TTS directives ("[soft-tone]", "[long pause]") are
+   * dropped from the bubble only; streamedResponse and everything sent
+   * to TTS keep the original text.
+   */
+  _displayText(text, streaming = false) {
+    if ((this._card.config || {}).chat_hide_sentiment_tags !== true) return text;
+    return streaming ? stripSentimentTagsStreaming(text) : stripSentimentTags(text);
+  }
+
   showTranscription(text) {
     this.addUser(text);
   }
 
   showResponse(text) {
+    text = this._displayText(text);
     if (this._streamEl) {
       this._card.ui.updateChatText(this._streamEl, text);
     } else {
@@ -64,6 +77,7 @@ export class ChatManager {
   }
 
   updateResponse(text) {
+    text = this._displayText(text, true);
     if (!this._streamEl) {
       this.addAssistant(text);
     } else {
@@ -115,7 +129,7 @@ export class ChatManager {
     // Remove animated dots if no tool call claimed them.
     // Frozen dots (from tool calls) are safe - showToolCall already nulled _thinkingEl.
     this.removeThinking();
-    this._streamEl = this._card.ui.addChatMessage(text, 'assistant');
+    this._streamEl = this._card.ui.addChatMessage(this._displayText(text), 'assistant');
     this._scroller.begin(this._streamEl);
     this._fadeSpans = null;
     this._solidNode = null;

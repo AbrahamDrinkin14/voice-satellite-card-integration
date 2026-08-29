@@ -149,6 +149,7 @@ export const conversationDisplaySchema = [
       { name: 'chat_show_user_command', default: true, selector: { boolean: {} } },
       { name: 'chat_show_assistant_response', default: true, selector: { boolean: {} } },
       { name: 'chat_show_tool_usage', default: true, selector: { boolean: {} } },
+      { name: 'chat_hide_sentiment_tags', default: false, selector: { boolean: {} } },
     ],
   },
 ];
@@ -183,6 +184,7 @@ export const behaviorLabels = {
   chat_show_user_command: t(null, 'editor.behavior.chat_show_user_command', 'Show user command'),
   chat_show_assistant_response: t(null, 'editor.behavior.chat_show_assistant_response', 'Show assistant response'),
   chat_show_tool_usage: t(null, 'editor.behavior.chat_show_tool_usage', 'Show tool usage'),
+  chat_hide_sentiment_tags: t(null, 'editor.behavior.chat_hide_sentiment_tags', 'Hide sentiment tags'),
   media_panel_linger_s: t(null, 'editor.behavior.media_panel_linger_s', 'Keep on screen for'),
   hide_timer_pills: t(null, 'editor.behavior.hide_timer_pills', 'Hide on-screen countdown'),
   show_timer_name_in_pill: t(null, 'editor.behavior.show_timer_name_in_pill', 'Show timer name inside pill'),
@@ -216,6 +218,7 @@ export const behaviorHelpers = {
   chat_show_user_command: t(null, 'editor.behavior.helper_chat_show_user_command', 'Show the transcribed voice command on screen, confirming your speech was recognized correctly.'),
   chat_show_assistant_response: t(null, 'editor.behavior.helper_chat_show_assistant_response', 'Show the assistant response text as it streams in. Turn off for a voice-only experience - TTS and visual results (images, weather, etc.) are unaffected.'),
   chat_show_tool_usage: t(null, 'editor.behavior.helper_chat_show_tool_usage', 'Show "using tool" status lines while the assistant works. The animated thinking indicator always shows regardless.'),
+  chat_hide_sentiment_tags: t(null, 'editor.behavior.helper_chat_hide_sentiment_tags', 'Remove bracketed TTS directives such as [soft-tone], [applause] or [long pause] from responses and announcements shown on screen. The text sent to the pipeline and spoken by the TTS engine keeps them, so engines like Fish.Audio still get their cues.'),
   media_panel_linger_s: t(null, 'editor.behavior.helper_media_panel_linger_s', 'How long anything shown in the media panel (images, videos, weather, financial data, Lovelace cards from LLM tools) stays after the response finishes speaking. The stop word stays armed for the whole time, so you can say it to dismiss, along with a double-tap or the Escape key. Set to 0 to keep the panel up until it is dismissed, which also holds off the screensaver.'),
   hide_timer_pills: t(null, 'editor.behavior.helper_hide_timer_pills', 'Hide the countdown pill on screen. Timers still run and the alert still fires when they finish.'),
   show_timer_name_in_pill: t(null, 'editor.behavior.helper_show_timer_name_in_pill', 'Display the timer name alongside the countdown in the pill (e.g. "Stir the sauce | 15:30"). Names longer than 25 characters are truncated.'),

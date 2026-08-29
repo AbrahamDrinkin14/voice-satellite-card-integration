@@ -110,6 +110,10 @@ export const DEFAULT_CONFIG = {
   chat_show_user_command: true,
   chat_show_assistant_response: true,
   chat_show_tool_usage: true,
+  // Strip bracketed TTS directives like "[soft-tone]" or "[long pause]"
+  // (Fish.Audio style) from the on-screen text.  The text sent to the
+  // pipeline and to the TTS engine is untouched.
+  chat_hide_sentiment_tags: false,
 
   // Timers
   hide_timer_pills: false,

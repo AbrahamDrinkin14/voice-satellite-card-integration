@@ -61,6 +61,7 @@ Per-satellite browser profile for overlay appearance, microphone processing, tim
 | **Show user command** *(Conversation Display)* | Show the transcribed voice command on screen, confirming your speech was recognized correctly. Default on |
 | **Show assistant response** *(Conversation Display)* | Show the assistant's response text as it streams in. Turn off for a voice-only, immersive experience: TTS playback and visual results (images, weather, stocks) are unaffected |
 | **Show tool usage** *(Conversation Display)* | Show "using tool" status lines while the assistant works. The animated thinking indicator is always shown regardless of this toggle |
+| **Hide sentiment tags** *(Conversation Display)* | Remove bracketed TTS directives such as `[soft-tone]`, `[applause]` or `[long pause]` from responses and announcements shown on screen. The text sent to the pipeline and spoken by the TTS engine keeps them, so engines like Fish.Audio still get their cues. Default off |
 | **Keep on screen for** *(Media Panel)* | How long the media panel stays after a response finishes speaking. Applies to every visual result: image and video search, weather, financial data, and Lovelace cards from LLM tools. 0-180 seconds, default 30. 0 keeps it up until dismissed |
 | **Hide on-screen countdown** *(Timers)* | Suppresses the countdown pill while a timer is running. The timer still fires and the alert still plays at zero |
 | **Hide timer name on alert** *(Timers)* | Hides the timer name shown below the alert when a timer finishes |

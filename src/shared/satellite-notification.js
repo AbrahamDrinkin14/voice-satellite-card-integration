@@ -6,6 +6,7 @@ import { playRemote } from '../tts/comms.js';
 import { getSelectState } from './satellite-state.js';
 import { BlurReason, Timing } from '../constants.js';
 import * as kiosk from '../kiosk/index.js';
+import { stripSentimentTags } from './sentiment-tags.js';
 
 /** Safety timeout for remote notification playback (matches TTS manager) */
 const REMOTE_SAFETY_TIMEOUT = 30_000;
@@ -291,7 +292,11 @@ function _playMain(mgr, ann, onComplete, logPrefix) {
     // interactive notifications (ask_question, start_conversation)
     // use 'assistant' style so they follow the configured chat layout.
     const isPassive = !ann.ask_question && !ann.start_conversation;
-    mgr.card.ui.addChatMessage(ann.message, isPassive ? 'announcement' : 'assistant');
+    // Display only: the message already went to TTS with its tags intact.
+    const message = mgr.card.config?.chat_hide_sentiment_tags === true
+      ? stripSentimentTags(ann.message)
+      : ann.message;
+    mgr.card.ui.addChatMessage(message, isPassive ? 'announcement' : 'assistant');
   }
 
   if (mediaUrl) {
