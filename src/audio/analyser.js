@@ -21,6 +21,10 @@
  * Skins opt in via `reactiveBar: true` in their definition.
  */
 
+import { getMediaElementSource } from './media-element-source.js';
+import { usesGainFallback } from './element-volume.js';
+import { isIosHost, isSafariHost } from './platform.js';
+
 /**
  * True where createMediaElementSource cannot be trusted to deliver samples
  * to an AnalyserNode. Chrome on iOS reports CriOS but runs WKWebView, so
@@ -28,11 +32,7 @@
  * desktop-UA case where Safari masquerades as macOS.
  */
 function mediaElementTapUnreliable() {
-  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
-  const isIosDevice = /iPhone|iPad|iPod/.test(ua)
-    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const isSafari = /AppleWebKit/.test(ua) && !/Chrome|Chromium|Android/.test(ua);
-  return isIosDevice || isSafari;
+  return isIosHost() || isSafariHost();
 }
 
 export class AnalyserManager {
@@ -48,7 +48,6 @@ export class AnalyserManager {
     this._audioAnalyser = null;
     this._mediaSourceNode = null;
     this._mediaSourceEl = null;
-    this._mediaSourceCache = new WeakMap();
 
     // Which analyser _tick() reads from
     this._activeAnalyser = null;
@@ -149,6 +148,15 @@ export class AnalyserManager {
   attachAudio(audioEl, audioContext) {
     if (!audioEl || !audioContext) return;
 
+    // The volume gain fallback already owns this element's routing
+    // (source -> gain -> destination). Tapping the same source here would
+    // add a second path to the speakers that bypasses the gain node -
+    // louder, and deaf to the very volume setting it works around.
+    if (usesGainFallback(audioEl)) {
+      this._attachDecodedLevels(audioEl);
+      return;
+    }
+
     // WebKit: don't reroute the element at all - the tap reads silence
     // there (and rerouting risks degrading playback). Compute levels from
     // the decoded bytes instead.
@@ -164,29 +172,22 @@ export class AnalyserManager {
         this._audioAnalyser = null;
         this._mediaSourceNode = null;
         this._mediaSourceEl = null;
-        this._mediaSourceCache = new WeakMap();
       }
       if (!this._audioAnalyser) {
         this._audioAnalyser = this._createAnalyser(audioContext);
       }
       // createMediaElementSource can only be called once per element for
-      // the life of the document. Cache per-element source nodes so TTS,
-      // notifications, and later reattachments all reuse the original node.
+      // the life of the document, so the node comes from the shared cache
+      // (see media-element-source.js) that the volume gain fallback also
+      // uses - two private caches would race to the second call, which
+      // throws and breaks the element for good.
       if (this._mediaSourceEl !== audioEl) {
-        const cached = this._mediaSourceCache.get(audioEl);
-        if (cached) {
-          if (cached.context !== audioContext) {
-            this._log.log('analyser', 'Skipping audio analyser attach - media element is bound to an old AudioContext');
-            return;
-          }
-          this._mediaSourceNode = cached.node;
-        } else {
-          this._mediaSourceNode = audioContext.createMediaElementSource(audioEl);
-          this._mediaSourceCache.set(audioEl, {
-            node: this._mediaSourceNode,
-            context: audioContext,
-          });
+        const node = getMediaElementSource(audioEl, audioContext);
+        if (!node) {
+          this._log.log('analyser', 'Skipping audio analyser attach - media element is bound to an old AudioContext');
+          return;
         }
+        this._mediaSourceNode = node;
         this._mediaSourceEl = audioEl;
       }
       this._mediaSourceNode.connect(this._audioAnalyser);

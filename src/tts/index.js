@@ -7,6 +7,7 @@
 
 import { playChime as playChimeSound, CHIME_WAKE, CHIME_ERROR, CHIME_DONE, getChimeDuration } from '../audio/chime.js';
 import { buildMediaUrl, buildRemoteMediaUrl } from '../audio/media-playback.js';
+import { setElementVolume } from '../audio/element-volume.js';
 import { playRemote, restoreRemote, stopRemote } from './comms.js';
 import { getSelectState } from '../shared/satellite-state.js';
 import { supportsNativeSound, playNativeSoundTracked } from '../kiosk/index.js';
@@ -391,7 +392,7 @@ export class TtsManager {
     // Reuse the persistent Audio element. Setting src auto-cancels any
     // previous in-flight fetch, so orphaned connections are impossible.
     const audio = this._audioEl;
-    audio.volume = this._card.mediaPlayer.volume;
+    setElementVolume(audio, this._card.mediaPlayer.volume, this._card);
 
     // Guard against double error/completion callbacks
     let handled = false;
@@ -853,7 +854,7 @@ export class TtsManager {
       this._nativeSound.setVolume(volume);
       return;
     }
-    if (this._playing) this._audioEl.volume = volume;
+    if (this._playing) setElementVolume(this._audioEl, volume, this._card);
   }
 
   /** Stop and disown any live native (Kiosk Satellite) sound. Nulling the

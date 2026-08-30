@@ -15,6 +15,7 @@
  */
 
 import { buildMediaUrl, playMediaUrl } from '../audio/media-playback.js';
+import { setElementVolume } from '../audio/element-volume.js';
 import { attachDoubleTap } from '../shared/double-tap.js';
 import { cameraSupportsWebrtc, attachCameraWebrtc } from '../shared/camera-webrtc.js';
 import { Timing } from '../constants.js';
@@ -312,10 +313,18 @@ export class MediaPlayerManager {
     if (!state) return;
 
     const vol = state.attributes?.volume_level;
-    if (vol !== undefined && vol !== null) {
-      this._volume = vol;
-      this._log.log('media-player', `Synced initial volume from entity: ${vol}`);
+    if (vol === undefined || vol === null) {
+      // An unavailable entity carries no attributes. Marking the sync done
+      // here would pin the page to its 1.0 default for the rest of the page
+      // load, and _reportState would then push that default back over the
+      // stored volume - resetting the user's setting to 100%. Leave it
+      // unsynced and try again on the next access.
+      this._log.log('media-player', 'Initial volume not available yet - will retry');
+      return;
     }
+    this._volume = vol;
+    this._log.log('media-player', `Synced initial volume from entity: ${vol}`);
+
     const muted = state.attributes?.is_volume_muted;
     if (muted !== undefined) {
       this._muted = muted;
@@ -466,7 +475,7 @@ export class MediaPlayerManager {
     } else if (isVideo) {
       this._audio = this._playVideo(url, this._effectiveVolume(), callbacks, { isHls });
     } else {
-      this._audio = playMediaUrl(url, this._effectiveVolume(), callbacks);
+      this._audio = playMediaUrl(url, this._effectiveVolume(), { ...callbacks, card: this._card });
     }
 
     // Visual overlays must dismiss the screensaver and prevent it from
@@ -954,7 +963,7 @@ export class MediaPlayerManager {
       `_setVolume raw=${volume} effective=${effective.toFixed(3)} muted=${this._muted}`,
     );
     if (this._audio) {
-      this._audio.volume = effective;
+      setElementVolume(this._audio, effective, this._card);
     }
     this._applyVolumeToExternalAudio(effective);
     const state = this._playing || this._activeSources.size > 0
@@ -968,7 +977,7 @@ export class MediaPlayerManager {
     const effective = this._effectiveVolume();
     this._log.log('media-player', `_setMute=${mute} effectiveVolume=${effective.toFixed(3)}`);
     if (this._audio) {
-      this._audio.volume = effective;
+      setElementVolume(this._audio, effective, this._card);
     }
     this._applyVolumeToExternalAudio(effective);
   }
@@ -981,7 +990,7 @@ export class MediaPlayerManager {
 
     // Notification managers share the same currentAudio pattern
     for (const mgr of [this._card.announcement, this._card.askQuestion, this._card.startConversation]) {
-      if (mgr?.currentAudio) mgr.currentAudio.volume = vol;
+      if (mgr?.currentAudio) setElementVolume(mgr.currentAudio, vol, this._card);
     }
   }
 

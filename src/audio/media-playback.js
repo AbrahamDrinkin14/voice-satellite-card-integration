@@ -5,6 +5,8 @@
  * Used by TtsManager and AnnouncementManager.
  */
 
+import { setElementVolume } from './element-volume.js';
+
 /**
  * Normalize a URL path to an absolute URL.
  * Handles: full URLs (returned as-is), root-relative paths, and bare paths.
@@ -100,11 +102,13 @@ export function buildRemoteMediaUrl(hass, urlPath) {
  * @param {Function} callbacks.onEnd - Called on successful completion
  * @param {Function} callbacks.onError - Called on error (receives error event)
  * @param {Function} [callbacks.onStart] - Called when playback starts
+ * @param {object} [callbacks.card] - Card, so a host that ignores the
+ *   element's volume property can be worked around (see setElementVolume)
  * @returns {HTMLAudioElement} The audio element (for external stop/cleanup)
  */
-export function playMediaUrl(url, volume, { onEnd, onError, onStart }) {
+export function playMediaUrl(url, volume, { onEnd, onError, onStart, card }) {
   const audio = new Audio();
-  audio.volume = volume;
+  setElementVolume(audio, volume, card);
 
   audio.onended = () => {
     onEnd();
