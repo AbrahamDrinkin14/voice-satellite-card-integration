@@ -15,7 +15,6 @@
  */
 
 import { buildMediaUrl, playMediaUrl } from '../audio/media-playback.js';
-import { setElementVolume } from '../audio/element-volume.js';
 import { attachDoubleTap } from '../shared/double-tap.js';
 import { cameraSupportsWebrtc, attachCameraWebrtc } from '../shared/camera-webrtc.js';
 import { Timing } from '../constants.js';
@@ -475,7 +474,7 @@ export class MediaPlayerManager {
     } else if (isVideo) {
       this._audio = this._playVideo(url, this._effectiveVolume(), callbacks, { isHls });
     } else {
-      this._audio = playMediaUrl(url, this._effectiveVolume(), { ...callbacks, card: this._card });
+      this._audio = playMediaUrl(url, this._effectiveVolume(), callbacks);
     }
 
     // Visual overlays must dismiss the screensaver and prevent it from
@@ -963,7 +962,7 @@ export class MediaPlayerManager {
       `_setVolume raw=${volume} effective=${effective.toFixed(3)} muted=${this._muted}`,
     );
     if (this._audio) {
-      setElementVolume(this._audio, effective, this._card);
+      this._audio.volume = effective;
     }
     this._applyVolumeToExternalAudio(effective);
     const state = this._playing || this._activeSources.size > 0
@@ -977,7 +976,7 @@ export class MediaPlayerManager {
     const effective = this._effectiveVolume();
     this._log.log('media-player', `_setMute=${mute} effectiveVolume=${effective.toFixed(3)}`);
     if (this._audio) {
-      setElementVolume(this._audio, effective, this._card);
+      this._audio.volume = effective;
     }
     this._applyVolumeToExternalAudio(effective);
   }
@@ -990,7 +989,7 @@ export class MediaPlayerManager {
 
     // Notification managers share the same currentAudio pattern
     for (const mgr of [this._card.announcement, this._card.askQuestion, this._card.startConversation]) {
-      if (mgr?.currentAudio) setElementVolume(mgr.currentAudio, vol, this._card);
+      if (mgr?.currentAudio) mgr.currentAudio.volume = vol;
     }
   }
 

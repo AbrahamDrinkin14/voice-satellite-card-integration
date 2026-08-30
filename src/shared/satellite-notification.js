@@ -416,7 +416,6 @@ function _playMediaNative(mgr, url, volume, logPrefix, onDone) {
 
 function _playMediaBrowser(mgr, url, volume, logPrefix, onDone) {
   mgr.currentAudio = playMediaUrl(url, volume, {
-    card: mgr.card,
     onEnd: () => {
       mgr.log.log(logPrefix, 'Media playback complete');
       if (mgr.currentAudio) {

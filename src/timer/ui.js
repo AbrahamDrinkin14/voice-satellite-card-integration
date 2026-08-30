@@ -418,7 +418,6 @@ async function playTimerTtsMedia(mgr, token, media) {
 
     await new Promise((resolve) => {
       _timerTtsAudio = playMediaUrl(url, card.mediaPlayer.volume, {
-        card,
         onStart: () => mgr.log.log('timer', 'Timer TTS playback started'),
         onEnd: () => {
           _timerTtsAudio = null;

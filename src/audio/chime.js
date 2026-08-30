@@ -18,7 +18,6 @@
  */
 
 import { buildMediaUrl, buildRemoteMediaUrl } from './media-playback.js';
-import { setElementVolume } from './element-volume.js';
 import { getSelectState } from '../shared/satellite-state.js';
 import { supportsNativeSound, playNativeSound, prefetchNativeSound } from '../kiosk/index.js';
 
@@ -189,7 +188,7 @@ export function playChime(card, chime, log) {
     const playBrowser = () => {
       const audio = getCachedAudio(chime.url);
       audio.currentTime = 0;
-      setElementVolume(audio, volume, card);
+      audio.volume = volume;
       audio.play().catch((e) => {
         log?.error('chime', `Chime play error: ${e}`);
       });
