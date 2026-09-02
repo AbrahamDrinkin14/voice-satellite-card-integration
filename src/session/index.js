@@ -88,6 +88,7 @@ export class VoiceSatelliteSession {
     this._connection = null;
     this._hasStarted = false;
     this._starting = false;
+    this._startInflight = null;
     this._startAttempted = false;
     this._lastSyncedSatelliteState = null;
     this._imageLingerTimeout = null;

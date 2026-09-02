@@ -49,6 +49,11 @@ export class AudioManager {
     // _startDelegatedMicrophone succeeds; PipelineManager reads it to put
     // the run's subscription on the same side as its audio.
     this._delegated = false;
+    // Bumped by stopMicrophone(). A browser-path startMicrophone() captures
+    // it before its first await and re-checks after each one: a stop that
+    // lands while getUserMedia is still in flight (tab hidden mid-resume,
+    // mute mid-start) must not be undone by the acquisition resolving late.
+    this._micGen = 0;
   }
 
   /** True while the app owns the turn's audio (delegated pipeline). */
@@ -131,7 +136,18 @@ export class AudioManager {
       return;
     }
 
+    // Never stack a second capture on top of a live one. Overwriting
+    // _mediaStream orphans the old stream, and an orphan can never be
+    // stopped again: the OS keeps its capture session (and on Android its
+    // communication audio mode) open until the page reloads (#152).
+    if (this._mediaStream && this._mediaStream !== KIOSK_MEDIA_STREAM) {
+      this._log.log('mic', 'startMicrophone: a stream is already open - releasing it first');
+      this.stopMicrophone();
+    }
+    const gen = ++this._micGen;
+
     await this._ensureAudioContextRunning();
+    this._assertMicGen(gen);
 
     const { config } = this._card;
     this._currentMicMode = mode;
@@ -150,7 +166,9 @@ export class AudioManager {
       audioConstraints.advanced = [{ voiceIsolation: true }];
     }
 
-    this._mediaStream = await this._getUserMediaWithDeviceFallback(audioConstraints, mode);
+    const stream = await this._getUserMediaWithDeviceFallback(audioConstraints, mode);
+    this._assertMicGen(gen, stream);
+    this._mediaStream = stream;
 
     if (config.debug) {
       const tracks = this._mediaStream.getAudioTracks();
@@ -160,6 +178,7 @@ export class AudioManager {
       }
     }
     await this._logMicDevices('initial');
+    this._assertMicGen(gen);
 
     this._sourceNode = this._audioContext.createMediaStreamSource(this._mediaStream);
     this._actualSampleRate = this._audioContext.sampleRate;
@@ -171,7 +190,32 @@ export class AudioManager {
     }
 
     await setupAudioWorklet(this, this._sourceNode);
+    if (this._micGen !== gen) {
+      // stopMicrophone() ran while the worklet module was loading: it already
+      // released the stream and source, only the node built after it is left.
+      try { this._workletNode?.disconnect(); } catch (_) { /* ignore */ }
+      this._workletNode = null;
+      this._assertMicGen(gen);
+    }
     this._log.log('mic', 'Audio capture via AudioWorklet');
+  }
+
+  /**
+   * Abort an in-flight browser-path startMicrophone() whose stopMicrophone()
+   * has already run. `stream` is a just-acquired stream that was never
+   * attached: stop it here so it cannot outlive the session that asked for
+   * it. Throws a MicStartAborted error that startListening() treats as a
+   * quiet exit, not a failure.
+   */
+  _assertMicGen(gen, stream = null) {
+    if (this._micGen === gen) return;
+    if (stream) {
+      stream.getTracks().forEach((t) => { try { t.stop(); } catch (_) { /* ignore */ } });
+    }
+    this._log.log('mic', 'startMicrophone: aborted - the mic was released while it was coming up');
+    const err = new Error('Microphone start aborted: stopMicrophone() ran while it was coming up');
+    err.name = 'MicStartAborted';
+    throw err;
   }
 
   /**
@@ -405,6 +449,10 @@ export class AudioManager {
   stopMicrophone() {
     const hadWorklet = !!this._workletNode;
     const hadStream = !!this._mediaStream;
+    // Invalidate any browser-path startMicrophone() still awaiting its
+    // stream (see _micGen). Harmless on the Kiosk Satellite paths below:
+    // nothing on those reads it.
+    this._micGen++;
     this.stopSending();
     // Delegated pipeline capture: close the app-side mic and level feed.
     // Checked before the KIOSK_MEDIA_STREAM branch - both modes park that

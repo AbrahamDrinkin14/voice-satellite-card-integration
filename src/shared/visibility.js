@@ -102,6 +102,7 @@ export class VisibilityManager {
       }
 
       this._debounceTimer = setTimeout(() => {
+        this._debounceTimer = null;
         this._log.log('visibility', 'Tab hidden - releasing mic and wake word');
         this._pause();
       }, Timing.VISIBILITY_DEBOUNCE);
@@ -116,6 +117,12 @@ export class VisibilityManager {
     // the resume (_onDetection clears _isPaused). Don't tear down the
     // session it just brought back.
     if (!this._isPaused) return;
+    // Also reached from _bringUp ahead of the debounce: drop the pending
+    // timer so this teardown does not run twice.
+    if (this._debounceTimer) {
+      clearTimeout(this._debounceTimer);
+      this._debounceTimer = null;
+    }
 
     this._card.setState(State.PAUSED);
 
@@ -158,13 +165,16 @@ export class VisibilityManager {
     // binaryHandlerId, sending audio to a dead handler.
     pipeline.resetForResume();
 
-    if (this._tornDown) {
+    if (this._tornDown || this._card._startInflight) {
       // The debounced _pause released the mic, wake word and pipeline.
       // Bring the whole stack back through the same full-start path the
       // mute switch uses on unmute - startListening re-checks the wake
       // mode and mute switch, and its one-time setup steps are idempotent.
       // pipeline.start() re-acquires the mic on demand for any satellite
       // event (ask_question etc.) replayed alongside this resume.
+      // A start still in flight (the page's first start, or an earlier
+      // resume the mic is slow to answer) takes this path too: the restart
+      // below joins it instead of racing a pipeline.restart() against it.
       this._tornDown = false;
       if (this._stopPromise) {
         await this._stopPromise;
@@ -173,12 +183,7 @@ export class VisibilityManager {
       this._isPaused = false;
       refreshSatelliteSubscription();
       this._log.log('visibility', 'Resuming - restarting mic and wake word');
-      this._card._starting = false;
-      try {
-        await startListening(this._card);
-      } catch (e) {
-        this._log.error('visibility', `Resume failed: ${e.message || e}`);
-      }
+      await this._bringUp();
       return;
     }
 
@@ -209,5 +214,42 @@ export class VisibilityManager {
 
     this._log.log('visibility', 'Resuming - restarting pipeline');
     pipeline.restart(0);
+  }
+
+  /**
+   * Run startListening until the stack matches the tab's visibility.
+   *
+   * The mic can take seconds to open on a tablet coming back from a long
+   * background (4.6 s in the #152 log), long enough for the tab to be hidden
+   * again before the start lands. Three outcomes, all handled here:
+   *  - the hide came while the mic was still opening: _pause found nothing to
+   *    stop, the start aborts itself ('aborted') and the tab is still hidden -
+   *    nothing to do;
+   *  - the hide came after the mic was open: _pause released it, but the start
+   *    can still finish and bring the wake word up on a hidden tab - tear that
+   *    down again;
+   *  - the hide and a new show both came while the start was in flight: the
+   *    start aborted for a pause that no longer holds - start again.
+   * A start never overlaps another (startListening joins an in-flight one),
+   * so nothing here can open a second capture.
+   */
+  async _bringUp() {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let result;
+      try {
+        result = await startListening(this._card);
+      } catch (e) {
+        this._log.error('visibility', `Resume failed: ${e.message || e}`);
+        return;
+      }
+      if (this._isPaused) {
+        this._log.log('visibility', 'Tab hidden again during resume - releasing what came up');
+        this._pause();
+        return;
+      }
+      if (result !== 'aborted') return;
+      this._log.log('visibility', 'Resume aborted by a pause that has since lifted - starting again');
+    }
+    this._log.error('visibility', 'Resume gave up after repeated visibility flaps');
   }
 }

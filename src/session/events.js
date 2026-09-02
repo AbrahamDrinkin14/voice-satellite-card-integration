@@ -213,7 +213,27 @@ export async function handleStartClick(session) {
  * Start the voice pipeline (mic + pipeline).
  * @param {import('./index.js').VoiceSatelliteSession} session
  */
-export async function startListening(session) {
+export function startListening(session) {
+  // One start at a time. A caller that arrives while another start is still
+  // awaiting the mic joins that start instead of opening a second capture
+  // beside it: two getUserMedia calls in flight leave one stream orphaned,
+  // and an orphan holds the OS mic open until the page reloads (#152).
+  if (session._startInflight) {
+    session.logger.log('lifecycle', 'Session already starting - joining the start in flight');
+    return session._startInflight;
+  }
+  session._startInflight = _startListeningBody(session).finally(() => {
+    session._startInflight = null;
+  });
+  return session._startInflight;
+}
+
+/**
+ * @returns {Promise<'aborted'|undefined>} 'aborted' when the mic was
+ *   released (tab hidden, mute) while the start was still bringing it up.
+ *   The releaser owns the resulting state; nothing was left running.
+ */
+async function _startListeningBody(session) {
   if (session._hasStarted && session.pipeline.binaryHandlerId) {
     session.logger.log('lifecycle', 'Session already running');
     return;
@@ -371,6 +391,15 @@ export async function startListening(session) {
   } catch (e) {
     // Rollback: if mic was started but pipeline failed, stop it
     try { session.audio.stopMicrophone(); } catch (_) {}
+
+    // stopMicrophone() ran underneath us (visibility pause, mute) while the
+    // mic was still coming up. Not a failure: whoever released the mic set
+    // the state to match, and surfacing a start button or a retry here
+    // would bring the mic straight back on a hidden tab.
+    if (e?.name === 'MicStartAborted') {
+      session.logger.log('lifecycle', 'Start aborted - the mic was released while the session was coming up');
+      return 'aborted';
+    }
 
     const msg = e?.message || JSON.stringify(e);
     session.logger.error('pipeline', `Failed to start: ${msg}`);
