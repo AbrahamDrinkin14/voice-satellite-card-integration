@@ -65,6 +65,13 @@ jobs:
         id: release_check
         env:
           GH_TOKEN: ${{ github.token }}
+          # Without this, gh guesses which repo to target from the local
+          # git remotes -- and with BOTH `origin` (this fork) and `upstream`
+          # (jxlarrea's real repo, added above so we can sync) present, it
+          # can resolve against the wrong one. Pin it explicitly instead of
+          # letting it guess; github.repository is always "whichever repo
+          # this workflow is actually running in", never ambiguous.
+          GH_REPO: ${{ github.repository }}
         run: |
           if gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
@@ -113,6 +120,13 @@ jobs:
         if: steps.check.outputs.new == 'true' || steps.release_check.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
+          # Same fix as the exists-check above: pin the target explicitly
+          # so gh can't resolve against the `upstream` remote instead of
+          # this fork. This is the exact bug the last run hit -- gh release
+          # create validated the tag against jxlarrea/voice-satellite-card-
+          # integration (upstream) rather than this fork, even though the
+          # tag had already been pushed here correctly.
+          GH_REPO: ${{ github.repository }}
         run: |
           TAG="${{ steps.version.outputs.tag }}"
           gh release delete "$TAG" --yes 2>/dev/null || true
