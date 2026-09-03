@@ -1,0 +1,25 @@
+/* ARIA Skin - Editor Preview Overrides
+   Styles the shared editor preview template's generic classes in ARIA's own
+   navy/cyan palette. The live overlay itself is a real orb render (an
+   iframe); the tiny dropdown thumbnail stays text-only rather than trying
+   to reproduce the WebGL orb in a static swatch. */
+
+.preview-container { background: #060d21; }
+.preview-blur { background: rgba(6, 13, 33, 0.92); }
+
+/* This skin has no native rainbow bar. */
+.preview-bar { display: none !important; }
+
+.preview-msg.user { color: rgba(157, 176, 216, 0.65); }
+.preview-msg.assistant { color: #eaf1ff; }
+
+.preview-timer {
+  color: #eaf1ff;
+  background: #0e1836;
+  border: 1px solid rgba(0, 217, 255, 0.18);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.preview-timer-progress { background: rgba(0, 217, 255, 0.18); }
+
+.preview-label { color: rgba(234, 241, 255, 0.4); }
+.preview-notice { color: rgba(234, 241, 255, 0.4); }

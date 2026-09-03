@@ -1,0 +1,30 @@
+/* ARIA Skin -- the ARIA neural orb (WebGL iframe) as the overlay background */
+
+/* This skin doesn't use the native gradient bar. */
+#voice-satellite-ui .vs-rainbow-bar {
+  display: none !important;
+}
+
+/* Full-bleed background layer, same z-index band every skin's background
+   visual occupies. Opacity is gated by the blur overlay's own .visible
+   class via a sibling selector -- the same mechanism .vs-waveform uses --
+   so the orb fades in/out with the rest of the UI, no separate JS needed. */
+.vs-aria {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+#voice-satellite-ui .vs-blur-overlay.visible ~ .vs-aria {
+  opacity: 1 !important;
+}
+
+.vs-aria iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}

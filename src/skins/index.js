@@ -7,6 +7,7 @@
 
 import { defaultSkin } from './default.js';
 import { alexaSkin } from './alexa.js';
+import { ensureAriaSkinRuntime, ariaSkin } from './aria.js';
 import { googleHomeSkin } from './google-home.js';
 import { homeAssistantSkin } from './home-assistant.js';
 import { ensureInkBlobsSkinRuntime, inkBlobsSkin } from './ink-blobs.js';
@@ -19,6 +20,7 @@ import { ensureWaveformSkinRuntime, waveformSkin } from './waveform.js';
 const SKIN_META = [
   { value: 'default', label: 'Default' },
   { value: 'alexa', label: 'Alexa' },
+  { value: 'aria', label: 'ARIA' },
   { value: 'google-home', label: 'Google Home' },
   { value: 'home-assistant', label: 'Home Assistant' },
   { value: 'ink-blobs', label: 'Ink Blobs' },
@@ -31,6 +33,7 @@ const SKIN_META = [
 const SKINS = {
   default: defaultSkin,
   alexa: alexaSkin,
+  aria: ariaSkin,
   'google-home': googleHomeSkin,
   'home-assistant': homeAssistantSkin,
   'ink-blobs': inkBlobsSkin,
@@ -41,6 +44,7 @@ const SKINS = {
 };
 
 const SKIN_ACTIVATORS = {
+  aria: ensureAriaSkinRuntime,
   'ink-blobs': ensureInkBlobsSkinRuntime,
   'lens-flares': ensureLensFlaresSkinRuntime,
   waveform: ensureWaveformSkinRuntime,
