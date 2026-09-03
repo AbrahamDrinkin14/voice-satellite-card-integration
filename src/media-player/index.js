@@ -156,6 +156,9 @@ export class MediaPlayerManager {
       case 'volume_mute':
         this._setMute(data.mute);
         break;
+      case 'seek':
+        this._seek(data.position);
+        break;
       default:
         this._log.log('media-player', `Unknown command: ${command}`);
     }
@@ -476,6 +479,7 @@ export class MediaPlayerManager {
     } else {
       this._audio = playMediaUrl(url, this._effectiveVolume(), callbacks);
     }
+    this._watchPosition(this._audio);
 
     // Visual overlays must dismiss the screensaver and prevent it from
     // re-activating mid-playback - audio-only playback doesn't need this
@@ -954,6 +958,64 @@ export class MediaPlayerManager {
     }
   }
 
+  /**
+   * Seek the current item to `position` seconds. Only seekable media
+   * (finite duration) honors this; live streams and images ignore it.
+   * The element's `seeked` event reports the settled position, but we
+   * also report right away so a seek to the same spot still syncs HA.
+   */
+  _seek(position) {
+    const info = this._positionInfo();
+    if (!this._audio || !info || typeof position !== 'number' || !Number.isFinite(position)) {
+      this._log.log(
+        'media-player',
+        `_seek no-op (audio=${!!this._audio} seekable=${!!info} position=${position})`,
+      );
+      return;
+    }
+    const target = Math.max(0, Math.min(position, info.duration));
+    this._log.log('media-player', `_seek to ${target.toFixed(2)}s of ${info.duration.toFixed(2)}s`);
+    this._audio.currentTime = target;
+    this._reportPlaybackPosition();
+  }
+
+  /**
+   * Position and duration of the current element, or null when the
+   * media isn't seekable: live HLS and WebRTC report an infinite
+   * duration, the MJPEG shim isn't a media element at all.
+   */
+  _positionInfo() {
+    const el = this._audio;
+    if (!el || typeof HTMLMediaElement === 'undefined' || !(el instanceof HTMLMediaElement)) {
+      return null;
+    }
+    const { duration, currentTime } = el;
+    if (!Number.isFinite(duration) || duration <= 0) return null;
+    return { position: currentTime, duration };
+  }
+
+  /**
+   * Keep HA's position in step with the element. `seeked` covers both
+   * HA-driven seeks and the native <video> controls; `durationchange`
+   * catches sources whose length is only known after playback starts.
+   */
+  _watchPosition(el) {
+    if (typeof HTMLMediaElement === 'undefined' || !(el instanceof HTMLMediaElement)) return;
+    const report = () => {
+      if (this._audio !== el) return;
+      this._reportPlaybackPosition();
+    };
+    el.addEventListener('seeked', report);
+    el.addEventListener('durationchange', report);
+  }
+
+  /** Re-send the current playing/paused state so HA picks up position. */
+  _reportPlaybackPosition() {
+    if (!this._positionInfo()) return;
+    if (this._playing) this._reportState('playing');
+    else if (this._paused) this._reportState('paused');
+  }
+
   _setVolume(volume) {
     this._volume = volume;
     const effective = this._effectiveVolume();
@@ -1075,6 +1137,13 @@ export class MediaPlayerManager {
     }
     if (this._mediaId && state !== 'idle') {
       msg.media_id = this._mediaId;
+    }
+    if (state !== 'idle') {
+      const info = this._positionInfo();
+      if (info) {
+        msg.position = info.position;
+        msg.duration = info.duration;
+      }
     }
 
     conn.sendMessagePromise(msg).catch((err) => {

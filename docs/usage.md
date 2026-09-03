@@ -395,4 +395,25 @@ stream:
 
 The integration already sends `lowLatencyMode: true` to hls.js, so once HA serves LL-HLS parts the player picks them up automatically with no further configuration on the satellite.
 
-The entity supports play, pause, resume, stop, volume set, and volume mute (volume is a no-op for MJPEG streams, which carry no audio). All commands work from the HA UI, automations, and `media_player.*` services.
+The entity supports play, pause, resume, stop, seek, volume set, and volume mute (volume is a no-op for MJPEG streams, which carry no audio). All commands work from the HA UI, automations, and `media_player.*` services.
+
+**Position and media info:**
+
+For seekable media (local files, podcasts, most Music Assistant tracks) the entity reports `media_position` and `media_duration`, so the standard media control card shows a progress bar you can drag. Live HLS, WebRTC and MJPEG streams have no fixed length and report neither.
+
+The entity also fills `media_title` and album art when it knows them. Items picked in Home Assistant's media browser keep the title and thumbnail shown there (radio stations bring their logo along, for example). Local media library files fall back to the file name. Automations can pass their own details through the `extra` field of `media_player.play_media`, using the same keys Google Cast accepts:
+
+```yaml
+action: media_player.play_media
+target:
+  entity_id: media_player.kitchen_tablet
+data:
+  media_content_id: https://example.com/stream.mp3
+  media_content_type: music
+  extra:
+    title: Morning Mix
+    artist: Some Artist
+    thumb: https://example.com/cover.jpg
+```
+
+Skip, previous, shuffle and repeat are not part of this entity because it plays a single item at a time and has no queue. When Music Assistant is the source, use the Music Assistant player entity for the satellite: it owns the queue and exposes those controls along with full track metadata.
