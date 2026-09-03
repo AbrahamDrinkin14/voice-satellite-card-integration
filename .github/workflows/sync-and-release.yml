@@ -53,7 +53,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release list --limit 1 | grep -q .; then
+          # --json + --jq gives a real number, not human-facing table text --
+          # gh release list prints a friendly "no releases found" message to
+          # STDOUT on an empty repo, which the previous `| grep -q .` matched
+          # as "something exists", inverting this check. That's why the
+          # previous run still skipped everything despite this step passing.
+          COUNT=$(gh release list --limit 1 --json tagName --jq 'length')
+          echo "existing release count: $COUNT"
+          if [ "$COUNT" -gt 0 ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
