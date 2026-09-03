@@ -43,8 +43,24 @@ jobs:
             echo "new=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # A fresh fork's HEAD already contains upstream's tip as an ancestor
+      # (the ARIA commits sit ON TOP of it), so the check above correctly
+      # says "nothing new to merge" on the very first run -- but that must
+      # not mean "skip cutting a release too". Bootstrap case: no release
+      # exists yet at all, so build+publish regardless of upstream's state.
+      - name: Check for an existing release
+        id: release_check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release list --limit 1 | grep -q .; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Merge upstream
-        if: steps.check.outputs.new == 'true'
+        if: steps.check.outputs.new == 'true' || steps.release_check.outputs.exists == 'false'
         run: |
           git config user.name "aria-skin-sync"
           git config user.email "noreply@example.invalid"
@@ -53,13 +69,13 @@ jobs:
           git merge upstream/main -m "Sync upstream $(git rev-parse --short upstream/main)"
 
       - name: Build
-        if: steps.check.outputs.new == 'true'
+        if: steps.check.outputs.new == 'true' || steps.release_check.outputs.exists == 'false'
         run: |
           npm ci
           npm run build
 
       - name: Verify the ARIA skin actually landed in the compiled output
-        if: steps.check.outputs.new == 'true'
+        if: steps.check.outputs.new == 'true' || steps.release_check.outputs.exists == 'false'
         run: |
           BUNDLE=custom_components/voice_satellite/frontend/voice-satellite-card.js
           node --check "$BUNDLE"
@@ -71,17 +87,17 @@ jobs:
           done
 
       - name: Push merged main
-        if: steps.check.outputs.new == 'true'
+        if: steps.check.outputs.new == 'true' || steps.release_check.outputs.exists == 'false'
         run: git push origin HEAD:main
 
       - name: Package release zip
-        if: steps.check.outputs.new == 'true'
+        if: steps.check.outputs.new == 'true' || steps.release_check.outputs.exists == 'false'
         run: |
           cd custom_components/voice_satellite
           zip -r ../../voice-satellite-card.zip .
 
       - name: Publish release
-        if: steps.check.outputs.new == 'true'
+        if: steps.check.outputs.new == 'true' || steps.release_check.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
