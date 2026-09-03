@@ -1,0 +1,96 @@
+name: Sync upstream and release (ARIA skin)
+
+# Keeps this fork current with jxlarrea/voice-satellite-card-integration
+# automatically, so HACS's normal "Update" button keeps working here the
+# same way it does on the official repo. Runs weekly + on demand.
+#
+# Never publishes a broken build: the merge and the compiled-output check
+# both have to succeed, or the job fails and nothing is released. A failed
+# run here means a human needs to look at it -- upstream changed something
+# this skin depends on -- not that anything shipped silently broken.
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'   # weekly, Monday 06:17 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/jxlarrea/voice-satellite-card-integration.git
+          git fetch upstream main
+
+      - name: Check for new upstream commits
+        id: check
+        run: |
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge upstream
+        if: steps.check.outputs.new == 'true'
+        run: |
+          git config user.name "aria-skin-sync"
+          git config user.email "noreply@example.invalid"
+          # Fails (non-zero exit) on a real conflict -- job stops here,
+          # nothing further runs, nothing gets released.
+          git merge upstream/main -m "Sync upstream $(git rev-parse --short upstream/main)"
+
+      - name: Build
+        if: steps.check.outputs.new == 'true'
+        run: |
+          npm ci
+          npm run build
+
+      - name: Verify the ARIA skin actually landed in the compiled output
+        if: steps.check.outputs.new == 'true'
+        run: |
+          BUNDLE=custom_components/voice_satellite/frontend/voice-satellite-card.js
+          node --check "$BUNDLE"
+          for needle in 'id:"aria"' 'name:"ARIA"' '/local/aria-orb/aria-orb.html'; do
+            if ! grep -qF "$needle" "$BUNDLE"; then
+              echo "::error::Expected '$needle' in the built bundle -- ARIA skin did not survive the upstream merge. Stopping without releasing."
+              exit 1
+            fi
+          done
+
+      - name: Push merged main
+        if: steps.check.outputs.new == 'true'
+        run: git push origin HEAD:main
+
+      - name: Package release zip
+        if: steps.check.outputs.new == 'true'
+        run: |
+          cd custom_components/voice_satellite
+          zip -r ../../voice-satellite-card.zip .
+
+      - name: Publish release
+        if: steps.check.outputs.new == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v${VERSION}-aria"
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          git tag -f "$TAG"
+          git push origin "$TAG" --force
+          gh release create "$TAG" \
+            --title "ARIA skin — v${VERSION}" \
+            --notes "Auto-synced from upstream v${VERSION}. Adds the ARIA orb skin. See README for details." \
+            voice-satellite-card.zip
