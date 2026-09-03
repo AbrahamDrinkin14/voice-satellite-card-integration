@@ -27,4 +27,10 @@
   width: 100%;
   height: 100%;
   border: 0;
+  /* Explicit, not just inherited from .vs-aria -- iframes are their own
+     browsing context and some mobile WebViews don't reliably honor an
+     ancestor's pointer-events:none for one. Belt-and-suspenders on top of
+     the real fix (aria.js now only mounts this element while the overlay
+     is genuinely open, never leaves it sitting idle in the page). */
+  pointer-events: none;
 }

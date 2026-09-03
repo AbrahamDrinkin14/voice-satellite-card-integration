@@ -12,10 +12,28 @@
  * existing chat text (z-index above this layer, untouched) streaming over
  * it, not confined to a middle strip.
  *
- * Mount/unmount detection mirrors waveform.js exactly: watch the shared
+ * IFRAME LIFECYCLE — deliberately stricter than a canvas-based skin needs:
+ * #voice-satellite-ui is a GLOBAL element present on every HA page (per the
+ * integration's own README: "loads globally on every page"), not something
+ * scoped to an active voice session. A canvas-based skin can safely stay
+ * mounted at opacity:0/pointer-events:none the whole time a household is
+ * just browsing dashboards, because a plain element's pointer-events is
+ * unambiguous. An iframe is a separate browsing context, and real-world
+ * mobile WebViews (including the HA Companion App) do not always honor an
+ * ancestor's pointer-events:none for an iframe reliably -- confirmed by
+ * hitting this directly: an always-mounted iframe here blocked page
+ * scrolling everywhere in HA while the ARIA skin was merely selected, not
+ * even while a voice session was open.
+ *
+ * Fix: only create the iframe while BOTH the ARIA skin is active AND the
+ * overlay is genuinely visible (.vs-blur-overlay.visible, the same signal
+ * every skin's own expensive-work gating already keys off). The moment
+ * either goes false, the iframe is torn down completely, not just hidden --
+ * there is never an idle iframe sitting in the page.
+ *
+ * Mount/unmount CSS-active detection mirrors waveform.js: watch the shared
  * <style id="voice-satellite-styles"> element for whether ITS OWN CSS
- * (which contains ".vs-aria") is the currently active skin's stylesheet —
- * that's the real, minimal-plumbing contract every skin here uses.
+ * (which contains ".vs-aria") is the currently active skin's stylesheet.
  */
 
 import css from './aria.css';
@@ -47,19 +65,16 @@ function setup() {
   _setupDone = true;
 
   const bar = ui.querySelector('.vs-rainbow-bar');
+  const overlayEl = ui.querySelector('.vs-blur-overlay');
 
-  const wrapper = document.createElement('div');
-  wrapper.className = 'vs-aria';
-  const frame = document.createElement('iframe');
-  frame.src = ORB_URL;
-  frame.title = 'ARIA';
-  wrapper.appendChild(frame);
-
-  let mounted = false;
+  let wrapper = null;   // null whenever the iframe does not exist
+  let frame = null;
+  let skinActive = false;
+  let overlayVisible = false;
   let lastState = null;
 
   function post(state) {
-    if (state === lastState) return;
+    if (!frame || state === lastState) return;
     lastState = state;
     frame.contentWindow?.postMessage({ type: 'aria-orb', state }, '*');
   }
@@ -72,18 +87,35 @@ function setup() {
     return 'listening'; // visible, but no recognized animation class yet
   }
 
-  function mount() {
-    if (mounted) return;
+  function ensureMounted() {
+    if (wrapper) return;
+    wrapper = document.createElement('div');
+    wrapper.className = 'vs-aria';
+    frame = document.createElement('iframe');
+    frame.src = ORB_URL;
+    frame.title = 'ARIA';
+    wrapper.appendChild(frame);
     ui.appendChild(wrapper);
-    mounted = true;
-    post(readState());
+    lastState = null;
   }
 
-  function unmount() {
-    if (!mounted) return;
+  function teardown() {
+    if (!wrapper) return;
     wrapper.remove();
-    mounted = false;
+    wrapper = null;
+    frame = null;
     lastState = null;
+  }
+
+  // The single place both signals (skin selected, overlay open) combine.
+  // Only ever mounted while both are true.
+  function sync() {
+    if (skinActive && overlayVisible) {
+      ensureMounted();
+      post(readState());
+    } else {
+      teardown();
+    }
   }
 
   // Same "is my CSS the active skin's CSS" check waveform.js uses — the
@@ -91,9 +123,8 @@ function setup() {
   // skin is selected right now.
   function checkSkinActive() {
     const styleEl = document.getElementById('voice-satellite-styles');
-    const isActive = styleEl?.textContent.includes('.vs-aria') ?? false;
-    if (isActive) mount();
-    else unmount();
+    skinActive = styleEl?.textContent.includes('.vs-aria') ?? false;
+    sync();
   }
 
   function observeStyleEl() {
@@ -116,10 +147,22 @@ function setup() {
   }
   observeStyleEl();
 
+  // The overlay's own open/close signal — mirrors waveform.js's overlayEl
+  // pattern exactly, since this is the same gate every skin's real work
+  // already keys off, just applied here to mounting the iframe at all
+  // rather than only to starting/stopping a render loop.
+  if (overlayEl) {
+    overlayVisible = overlayEl.classList.contains('visible');
+    new MutationObserver(() => {
+      overlayVisible = overlayEl.classList.contains('visible');
+      sync();
+    }).observe(overlayEl, { attributes: true, attributeFilter: ['class'] });
+  }
+
   // Real state changes: the bar's own class list, event-driven — no polling
   // loop needed since the orb's own page owns its animation frame.
   if (bar) {
-    new MutationObserver(() => { if (mounted) post(readState()); })
+    new MutationObserver(() => { if (wrapper) post(readState()); })
       .observe(bar, { attributes: true, attributeFilter: ['class'] });
   }
 
