@@ -29,6 +29,10 @@ jobs:
         with:
           node-version: 20
 
+      - name: Read package version
+        id: version
+        run: echo "tag=v$(node -p "require('./package.json').version")-aria" >> "$GITHUB_OUTPUT"
+
       - name: Fetch upstream
         run: |
           git remote add upstream https://github.com/jxlarrea/voice-satellite-card-integration.git
@@ -46,21 +50,23 @@ jobs:
       # A fresh fork's HEAD already contains upstream's tip as an ancestor
       # (the ARIA commits sit ON TOP of it), so the check above correctly
       # says "nothing new to merge" on the very first run -- but that must
-      # not mean "skip cutting a release too". Bootstrap case: no release
-      # exists yet at all, so build+publish regardless of upstream's state.
-      - name: Check for an existing release
+      # not mean "skip cutting a release too". Bootstrap case: OUR tag's
+      # release doesn't exist yet, so build+publish regardless of upstream.
+      #
+      # Deliberately scoped to the exact tag we'd publish (v<version>-aria),
+      # not "does any release exist" -- two earlier, broader attempts both
+      # went wrong: counting ALL releases picked up a release `gh release
+      # list` can see (a draft, most likely -- those are hidden from
+      # unauthenticated reads, which is why checking this from outside the
+      # job never showed one) that has nothing to do with whether THIS
+      # version has been published. Asking the precise question sidesteps
+      # that ambiguity instead of re-litigating why a broader count was 1.
+      - name: Check for an existing release of this version
         id: release_check
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # --json + --jq gives a real number, not human-facing table text --
-          # gh release list prints a friendly "no releases found" message to
-          # STDOUT on an empty repo, which the previous `| grep -q .` matched
-          # as "something exists", inverting this check. That's why the
-          # previous run still skipped everything despite this step passing.
-          COUNT=$(gh release list --limit 1 --json tagName --jq 'length')
-          echo "existing release count: $COUNT"
-          if [ "$COUNT" -gt 0 ]; then
+          if gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -108,12 +114,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION=$(node -p "require('./package.json').version")
-          TAG="v${VERSION}-aria"
+          TAG="${{ steps.version.outputs.tag }}"
           gh release delete "$TAG" --yes 2>/dev/null || true
           git tag -f "$TAG"
           git push origin "$TAG" --force
           gh release create "$TAG" \
-            --title "ARIA skin — v${VERSION}" \
-            --notes "Auto-synced from upstream v${VERSION}. Adds the ARIA orb skin. See README for details." \
+            --title "ARIA skin — $TAG" \
+            --notes "Auto-synced from upstream. Adds the ARIA orb skin. See README for details." \
             voice-satellite-card.zip
