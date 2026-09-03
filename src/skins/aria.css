@@ -248,3 +248,302 @@
   0%, 100% { transform: translate(-50%, -50%) scale(1); }
   50%      { transform: translate(-50%, -50%) scale(1.04); }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Rich content surfaces (voice_satellite.show / assistant results)
+   ───────────────────────────────────────────────────────────────────
+   Ported from the baseline skin's markup and recoloured into ARIA's
+   navy world. Every other skin fully styles these six surfaces; without
+   this block ARIA fell back to unstyled defaults. Structure (class
+   names, layout) matches the DOM the integration emits — only palette,
+   surface treatment and the legibility glass are ARIA's.
+   (The media-browser dialog, vs-mp-*, self-styles via an injected
+   <style id="vs-mp-style"> and is intentionally not themed here.)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* -- Image / result panel (right side) -- */
+#voice-satellite-ui .vs-image-panel {
+  position: fixed;
+  top: 50%;
+  right: 7.5%;
+  transform: translateY(-50%);
+  width: 30%;
+  max-height: 70vh;
+  overflow: hidden;
+  z-index: 10001;
+  pointer-events: none;
+  display: none;
+  /* Navy glass so content stays legible over the live orb behind it. */
+  background: rgba(10, 20, 46, 0.92);
+  border: 1px solid rgba(56, 244, 255, 0.18);
+  border-radius: 20px;
+  padding: 12px;
+  box-shadow: 0 12px 40px -12px rgba(0, 0, 0, 0.7);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+#voice-satellite-ui .vs-image-panel.visible {
+  display: block;
+  pointer-events: auto;
+}
+#voice-satellite-ui .vs-image-panel.featured { width: 25%; }
+
+#voice-satellite-ui .vs-panel-scroll {
+  overflow-y: auto;
+  max-height: calc(70vh - 24px);
+  padding-right: 8px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--aria-scroll) transparent;
+}
+#voice-satellite-ui .vs-panel-scroll::-webkit-scrollbar { width: 6px; }
+#voice-satellite-ui .vs-panel-scroll::-webkit-scrollbar-track { background: transparent; }
+#voice-satellite-ui .vs-panel-scroll::-webkit-scrollbar-thumb {
+  background: var(--aria-scroll);
+  border-radius: 3px;
+}
+#voice-satellite-ui .vs-panel-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 244, 255, 0.5);
+}
+
+#voice-satellite-ui .vs-image-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+}
+#voice-satellite-ui .vs-image-grid.single { grid-template-columns: 1fr; }
+#voice-satellite-ui .vs-image-grid.single .vs-panel-img {
+  aspect-ratio: auto;
+  max-height: calc(70vh - 24px);
+  object-fit: contain;
+}
+#voice-satellite-ui .vs-panel-img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 12px;
+  opacity: 0;
+  animation: aria-fade-in 0.3s ease forwards;
+}
+
+/* Chat narrows so an open panel never lands on top of the conversation
+   text (the "squished/glitched" failure mode). ARIA's chat is left:8%/
+   right:8% with a scrim that bleeds -4% past its box, so when narrowed we
+   also pull the scrim's right bleed back in. */
+#voice-satellite-ui.has-images .vs-chat-container { right: calc(38% + 16px); }
+#voice-satellite-ui.has-featured .vs-chat-container { right: calc(33% + 16px); }
+#voice-satellite-ui.has-images .vs-chat-container,
+#voice-satellite-ui.has-featured .vs-chat-container {
+  margin-right: 0;
+  padding-right: 0;
+}
+#voice-satellite-ui.has-images .vs-chat-msg,
+#voice-satellite-ui.has-featured .vs-chat-msg { max-width: 100%; }
+
+/* -- Lightbox (fullscreen viewer) -- */
+#voice-satellite-ui .vs-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10002;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(3, 7, 20, 0.95);
+}
+#voice-satellite-ui .vs-lightbox.visible { display: flex; }
+#voice-satellite-ui .vs-lightbox-img {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 12px;
+  box-shadow: 0 24px 80px -20px rgba(0, 0, 0, 0.9);
+}
+#voice-satellite-ui .vs-lightbox-iframe {
+  width: 90vw;
+  max-width: 1200px;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  display: none;
+}
+
+/* -- Video grid -- */
+#voice-satellite-ui .vs-video-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  width: 100%;
+}
+#voice-satellite-ui .vs-video-card { cursor: pointer; }
+#voice-satellite-ui .vs-video-thumb-wrap { position: relative; width: 100%; }
+#voice-satellite-ui .vs-video-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 12px;
+}
+#voice-satellite-ui .vs-video-duration {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(3, 7, 20, 0.85);
+  color: var(--aria-text);
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+#voice-satellite-ui .vs-video-info { padding: 8px 4px 0; }
+#voice-satellite-ui .vs-video-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--aria-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+#voice-satellite-ui .vs-video-channel {
+  font-size: 12px;
+  color: var(--aria-muted);
+  margin-top: 2px;
+}
+
+/* -- Weather -- keep the navy glass (unlike the baseline, which drops it),
+   so the forecast reads over the orb. -- */
+#voice-satellite-ui .vs-weather-card { padding: 4px 4px; }
+#voice-satellite-ui .vs-weather-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 4px;
+}
+#voice-satellite-ui .vs-weather-icon { width: 96px; height: 96px; flex-shrink: 0; }
+#voice-satellite-ui .vs-weather-temp {
+  font-size: calc(52px * var(--vs-text-scale, 1));
+  font-weight: 800;
+  color: var(--aria-text);
+  line-height: 1.1;
+}
+#voice-satellite-ui .vs-weather-condition {
+  font-size: calc(22px * var(--vs-text-scale, 1));
+  color: var(--aria-dim);
+  margin-top: 4px;
+}
+#voice-satellite-ui .vs-weather-humidity {
+  font-size: calc(18px * var(--vs-text-scale, 1));
+  color: var(--aria-muted);
+  margin-top: 4px;
+}
+#voice-satellite-ui .vs-weather-divider {
+  height: 1px;
+  background: rgba(56, 244, 255, 0.16);
+  margin: 12px 0;
+}
+#voice-satellite-ui .vs-weather-forecast { display: flex; flex-direction: column; }
+#voice-satellite-ui .vs-weather-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 4px;
+}
+#voice-satellite-ui .vs-weather-row-time {
+  width: 30%;
+  font-size: calc(18px * var(--vs-text-scale, 1));
+  color: var(--aria-muted);
+  flex-shrink: 0;
+}
+#voice-satellite-ui .vs-weather-row-cond {
+  flex: 1;
+  font-size: calc(18px * var(--vs-text-scale, 1));
+  color: var(--aria-dim);
+}
+#voice-satellite-ui .vs-weather-row-temp {
+  font-size: calc(22px * var(--vs-text-scale, 1));
+  font-weight: 700;
+  color: var(--aria-text);
+  text-align: right;
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- Financial -- */
+#voice-satellite-ui .vs-financial-card { padding: 4px 4px; }
+#voice-satellite-ui .vs-financial-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 4px;
+}
+#voice-satellite-ui .vs-financial-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+#voice-satellite-ui .vs-financial-name {
+  font-size: calc(20px * var(--vs-text-scale, 1));
+  color: var(--aria-text);
+  flex: 1;
+  min-width: 0;
+}
+#voice-satellite-ui .vs-financial-badge {
+  font-size: calc(12px * var(--vs-text-scale, 1));
+  color: var(--aria-dim);
+  background: rgba(56, 244, 255, 0.1);
+  padding: 2px 8px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+#voice-satellite-ui .vs-financial-price {
+  font-size: calc(48px * var(--vs-text-scale, 1));
+  font-weight: 800;
+  color: var(--aria-text);
+  padding: 4px 4px 0;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+#voice-satellite-ui .vs-financial-change {
+  font-size: calc(22px * var(--vs-text-scale, 1));
+  padding: 4px 4px 8px;
+  font-variant-numeric: tabular-nums;
+}
+/* Semantic up/down, brightened for legibility on navy. */
+#voice-satellite-ui .vs-financial-change.up { color: #3DE8A0; }
+#voice-satellite-ui .vs-financial-change.down { color: #FF6B7A; }
+#voice-satellite-ui .vs-financial-details {
+  font-size: calc(16px * var(--vs-text-scale, 1));
+  color: var(--aria-muted);
+  padding: 8px 4px;
+}
+#voice-satellite-ui .vs-financial-conversion {
+  font-size: calc(42px * var(--vs-text-scale, 1));
+  font-weight: 800;
+  color: var(--aria-text);
+  padding: 16px 4px 8px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+#voice-satellite-ui .vs-financial-rate {
+  font-size: calc(20px * var(--vs-text-scale, 1));
+  color: var(--aria-muted);
+  padding: 4px 4px;
+}
+
+/* Centred timer-name label (body sibling — can't read --aria-* vars). */
+.vs-timer-name-label {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, calc(-50% + 80px));
+  z-index: 10002;
+  text-align: center;
+  max-width: 80vw;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  color: #EAF1FF;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.6);
+  font-size: calc(36px * var(--vs-text-scale, 1));
+  font-weight: 700;
+}

@@ -4,10 +4,11 @@ name: Sync upstream and release (ARIA skin)
 # automatically, so HACS's normal "Update" button keeps working here the
 # same way it does on the official repo. Runs weekly + on demand.
 #
-# Never publishes a broken build: the merge and the compiled-output check
-# both have to succeed, or the job fails and nothing is released. A failed
-# run here means a human needs to look at it -- upstream changed something
-# this skin depends on -- not that anything shipped silently broken.
+# Never publishes a broken build: the merge, the compiled-output check, and
+# the wake-word-models check all have to succeed, or the job fails and
+# nothing is released. A failed run means a human needs to look -- upstream
+# changed something this skin depends on -- not that anything shipped
+# silently broken.
 
 on:
   schedule:
@@ -23,124 +24,121 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0   # full history + all tags (the release gate reads both)
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Read package version
-        id: version
-        run: echo "tag=v$(node -p "require('./package.json').version")-aria" >> "$GITHUB_OUTPUT"
-
-      - name: Fetch upstream
+      # -- Decide whether a release is needed ---------------------------
+      # Two independent reasons, OR'd:
+      #   (1) upstream has commits we don't -- the merge below moves HEAD,
+      #       so whatever's released is about to be stale.
+      #   (2) no ARIA release tag sits on the CURRENT HEAD -- covers both
+      #       first-run bootstrap and "someone pushed straight to this fork"
+      #       (a direct skin fix, independent of upstream). Asking "is HEAD
+      #       already released?" via `git tag --points-at` needs no version
+      #       comparison at all, so it can't be fooled by tag-sort quirks.
+      - name: Decide whether to release
+        id: decide
         run: |
-          git remote add upstream https://github.com/jxlarrea/voice-satellite-card-integration.git
-          git fetch upstream main
-
-      - name: Check for new upstream commits
-        id: check
-        run: |
-          if git merge-base --is-ancestor upstream/main HEAD; then
-            echo "new=false" >> "$GITHUB_OUTPUT"
+          git remote add upstream https://github.com/jxlarrea/voice-satellite-card-integration.git || true
+          git fetch -q upstream main
+          if git merge-base --is-ancestor upstream/main HEAD; then NEWUP=false; else NEWUP=true; fi
+          if git tag --points-at HEAD | grep -q '^v.*-aria'; then RELEASED_HEAD=true; else RELEASED_HEAD=false; fi
+          echo "upstream has new commits: $NEWUP"
+          echo "HEAD already released:    $RELEASED_HEAD"
+          if [ "$NEWUP" = "true" ] || [ "$RELEASED_HEAD" = "false" ]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
           else
-            echo "new=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      # Two independent reasons a release is needed, OR'd together:
-      #   (1) upstream has new commits (checked above) -- the merge step
-      #       below will move HEAD forward, so whatever's currently
-      #       released is about to be stale.
-      #   (2) the release for our tag doesn't match CURRENT (pre-merge)
-      #       HEAD -- covers both "no release yet" (bootstrap) and "someone
-      #       pushed straight to this fork's skin code, independent of
-      #       upstream" (a direct fix here, exactly what happens the first
-      #       time this needed a second look after Jacob hit a real bug).
-      #
-      # An earlier version of this check only asked "does a release for our
-      # tag exist by name" -- true forever after the first successful
-      # publish, since a direct push to aria.js/aria.css doesn't change
-      # package.json's version and therefore doesn't change the tag name
-      # either. That silently ate every follow-up fix: the tag existed, so
-      # the whole pipeline skipped, even though HEAD had moved past what
-      # was actually released. Comparing against the release's real target
-      # commit closes that gap for good, not just for this one incident.
-      - name: Check whether the release matches current HEAD
-        id: release_check
-        run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          # Resolve the tag directly via git (actions/checkout's fetch-depth:0
-          # already pulled every tag from this fork), not gh release view's
-          # targetCommitish -- that field documents "where to create the tag
-          # if it doesn't exist yet", which isn't quite our case: our tags
-          # are always pushed BEFORE the release is created against them, so
-          # trusting it here would be relying on behaviour I'm not certain
-          # of. Asking git directly what commit the tag itself points to has
-          # no such ambiguity.
-          RELEASED_SHA=$(git rev-parse "refs/tags/$TAG" 2>/dev/null || echo "")
-          CURRENT_SHA=$(git rev-parse HEAD)
-          echo "released sha: ${RELEASED_SHA:-<no release yet>}"
-          echo "current HEAD: $CURRENT_SHA"
-          if [ -z "$RELEASED_SHA" ] || [ "$RELEASED_SHA" != "$CURRENT_SHA" ]; then
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "go=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Merge upstream
-        if: steps.check.outputs.new == 'true' || steps.release_check.outputs.exists == 'false'
+        if: steps.decide.outputs.go == 'true'
         run: |
           git config user.name "aria-skin-sync"
           git config user.email "noreply@example.invalid"
-          # Fails (non-zero exit) on a real conflict -- job stops here,
-          # nothing further runs, nothing gets released.
+          # Non-zero exit on a real conflict -- job stops, nothing released.
           git merge upstream/main -m "Sync upstream $(git rev-parse --short upstream/main)"
 
       - name: Build
-        if: steps.check.outputs.new == 'true' || steps.release_check.outputs.exists == 'false'
+        if: steps.decide.outputs.go == 'true'
         run: |
           npm ci
           npm run build
 
       - name: Verify the ARIA skin actually landed in the compiled output
-        if: steps.check.outputs.new == 'true' || steps.release_check.outputs.exists == 'false'
+        if: steps.decide.outputs.go == 'true'
         run: |
           BUNDLE=custom_components/voice_satellite/frontend/voice-satellite-card.js
           node --check "$BUNDLE"
-          for needle in 'id:"aria"' 'name:"ARIA"' '/local/aria-orb/aria-orb.html'; do
-            if ! grep -qF "$needle" "$BUNDLE"; then
+          # ARIA-unique needles (not class names every skin's CSS shares):
+          # skin id + orb asset URL prove the skin registered; --aria-surface
+          # proves the ARIA stylesheet (palette + panel block) compiled in.
+          for needle in 'id:"aria"' 'name:"ARIA"' '/local/aria-orb/aria-orb.html' '--aria-surface'; do
+            # -e/-- so a needle that starts with "--" isn't parsed as a flag.
+            if ! grep -qF -e "$needle" "$BUNDLE"; then
               echo "::error::Expected '$needle' in the built bundle -- ARIA skin did not survive the upstream merge. Stopping without releasing."
               exit 1
             fi
           done
 
+      # Monotonic, computed POST-merge so the number always moves forward:
+      #   tag = v<upstream pkg version>-aria<commit count on this HEAD>
+      # A dot before the counter (…-aria.7) sorts LOWER than …-aria under
+      # HACS's AwesomeVersion, so the counter is glued on with no separator
+      # (…-aria7), which sorts strictly higher and numerically (aria10 >
+      # aria9). Verified against the exact awesomeversion build HA ships.
+      # Computing it after the merge is what makes an upstream-sync run
+      # actually bump the number -- the merge commit raises the count -- so
+      # HACS shows the sync as a real update instead of re-tagging in place.
+      - name: Compute release tag
+        id: tag
+        if: steps.decide.outputs.go == 'true'
+        run: |
+          V=$(node -p "require('./package.json').version")
+          N=$(git rev-list --count HEAD)
+          echo "tag=v${V}-aria${N}" >> "$GITHUB_OUTPUT"
+
       - name: Push merged main
-        if: steps.check.outputs.new == 'true' || steps.release_check.outputs.exists == 'false'
+        if: steps.decide.outputs.go == 'true'
         run: git push origin HEAD:main
 
       - name: Package release zip
-        if: steps.check.outputs.new == 'true' || steps.release_check.outputs.exists == 'false'
+        if: steps.decide.outputs.go == 'true'
         run: |
           cd custom_components/voice_satellite
           zip -r ../../voice-satellite-card.zip .
 
+      # The zip is what HACS actually extracts onto the box, so the models
+      # check has to run against the zip, not the working tree -- and after
+      # packaging. This is what guarantees Jacob's custom wake words
+      # (aria.*, the openWakeWord AR_e_uh) ride along in every release and
+      # can't be dropped by a botched build or a future upstream reshuffle.
+      - name: Verify wake-word models are in the release zip
+        if: steps.decide.outputs.go == 'true'
+        run: |
+          for m in models/aria.tflite models/aria.json models/openwakeword/AR_e_uh.onnx; do
+            if ! unzip -l voice-satellite-card.zip | grep -q " $m$"; then
+              echo "::error::'$m' missing from the release zip -- custom wake words would be lost on the next HACS update. Stopping without releasing."
+              exit 1
+            fi
+          done
+
       - name: Publish release
-        if: steps.check.outputs.new == 'true' || steps.release_check.outputs.exists == 'false'
+        if: steps.decide.outputs.go == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          # Same fix as the exists-check above: pin the target explicitly
-          # so gh can't resolve against the `upstream` remote instead of
-          # this fork. This is the exact bug the last run hit -- gh release
-          # create validated the tag against jxlarrea/voice-satellite-card-
-          # integration (upstream) rather than this fork, even though the
-          # tag had already been pushed here correctly.
+          # Pin the target to THIS fork so gh can't resolve the tag against
+          # the `upstream` remote instead.
           GH_REPO: ${{ github.repository }}
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
+          TAG="${{ steps.tag.outputs.tag }}"
           gh release delete "$TAG" --yes 2>/dev/null || true
           git tag -f "$TAG"
           git push origin "$TAG" --force
           gh release create "$TAG" \
             --title "ARIA skin — $TAG" \
-            --notes "Auto-synced from upstream. Adds the ARIA orb skin. See README for details." \
+            --notes "Auto-synced from upstream. Adds the ARIA orb skin and bundles Jacob's custom wake-word models (aria, AR_e_uh) so HACS updates never drop them. See README." \
             voice-satellite-card.zip

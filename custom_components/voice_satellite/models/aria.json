@@ -1,0 +1,17 @@
+{
+  "type": "micro",
+  "wake_word": "ARIA",
+  "author": "local training - retrained 2026-09-02 on Mac (1200 multi-voice positive samples + dinner_party/no_speech/speech negative sets)",
+  "model": "aria.tflite",
+  "trained_languages": [
+    "en"
+  ],
+  "version": 3,
+  "micro": {
+    "probability_cutoff": 0.97,
+    "feature_step_size": 10,
+    "sliding_window_size": 5,
+    "tensor_arena_size": 32000,
+    "minimum_esphome_version": "2024.7.0"
+  }
+}
