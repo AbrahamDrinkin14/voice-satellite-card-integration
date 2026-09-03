@@ -42,7 +42,15 @@ import previewCSS from './aria-preview.css';
 // Where the shared orb asset lives — see homeassistant/aria-orb/README.md.
 // It auto-picks its own render preset (particle/filament density) from the
 // iframe's actual measured size, so no ?preset= override is passed here.
-const ORB_URL = '/local/aria-orb/aria-orb.html';
+//
+// bg=#060D21 (ARIA navyBase) makes the ORB PAGE paint its own background,
+// rather than relying on the overlay scrim showing through a transparent
+// iframe. Confirmed necessary in the real kiosk WebView: an iframe whose
+// document body is transparent still paints an opaque WHITE base canvas in
+// many mobile/embedded WebViews, so the full-bleed iframe was covering the
+// navy scrim entirely and the orb rendered on white. Painting navy inside
+// the orb page sidesteps that WebView quirk completely.
+const ORB_URL = '/local/aria-orb/aria-orb.html?bg=%23060D21';
 
 // Bar animation class -> orb state. 'connecting' (brief, right after wake
 // word, before STT starts streaming) has no distinct orb state of its own;

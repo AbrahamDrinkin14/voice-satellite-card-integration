@@ -1,14 +1,32 @@
-/* ARIA Skin -- the ARIA neural orb (WebGL iframe) as the overlay background */
+/* ARIA Skin -- the ARIA neural orb (WebGL iframe) as the overlay background,
+   with the conversation text anchored along the bottom on a legibility scrim
+   so it never collides with the centered orb. */
+
+/* ARIA palette. Dark-committed on purpose: the orb is always the same navy
+   world, so the chrome is light-on-navy regardless of HA's light/dark
+   toggle -- no separate .vs-light block. */
+#voice-satellite-ui {
+  --aria-navy:   #060D21;
+  --aria-text:   #EAF1FF;
+  --aria-dim:    rgba(157, 176, 216, 0.75);
+  --aria-muted:  #8091B8;
+  --aria-cyan:   #38F4FF;
+  --aria-surface:#0E1836;
+  --aria-scroll: rgba(120, 150, 220, 0.3);
+  font-family: "Nunito", ui-rounded, "SF Pro Rounded", system-ui, -apple-system, Roboto, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+}
 
 /* This skin doesn't use the native gradient bar. */
 #voice-satellite-ui .vs-rainbow-bar {
   display: none !important;
 }
 
-/* Full-bleed background layer, same z-index band every skin's background
-   visual occupies. Opacity is gated by the blur overlay's own .visible
-   class via a sibling selector -- the same mechanism .vs-waveform uses --
-   so the orb fades in/out with the rest of the UI, no separate JS needed. */
+/* ─── Orb background layer ──────────────────────────────────────────
+   Full-bleed. z-index band that every skin's background visual uses.
+   Fades with the overlay via the blur overlay's own .visible class
+   (sibling selector), same mechanism .vs-waveform uses. */
 .vs-aria {
   position: fixed;
   inset: 0;
@@ -17,20 +35,216 @@
   opacity: 0;
   transition: opacity 0.4s ease;
 }
-
 #voice-satellite-ui .vs-blur-overlay.visible ~ .vs-aria {
   opacity: 1 !important;
 }
-
 .vs-aria iframe {
   display: block;
   width: 100%;
   height: 100%;
   border: 0;
-  /* Explicit, not just inherited from .vs-aria -- iframes are their own
-     browsing context and some mobile WebViews don't reliably honor an
-     ancestor's pointer-events:none for one. Belt-and-suspenders on top of
-     the real fix (aria.js now only mounts this element while the overlay
-     is genuinely open, never leaves it sitting idle in the page). */
+  /* Explicit, not just inherited -- iframes are their own browsing context
+     and some mobile WebViews don't reliably honor an ancestor's
+     pointer-events:none for one. (The orb page paints its own navy via the
+     bg= param in aria.js, so iframe transparency quirks don't matter.) */
   pointer-events: none;
+}
+
+/* ─── Conversation text ─────────────────────────────────────────────
+   Anchored to the bottom third, above the orb (z-index 10001 > 10000),
+   sitting on a bottom-up navy gradient scrim so text stays legible over
+   whatever the orb is doing behind it. The orb stays the centered
+   centerpiece; text lives clearly beneath it. */
+#voice-satellite-ui .vs-chat-container {
+  position: fixed;
+  left: 8%;
+  right: 8%;
+  bottom: 6%;
+  z-index: 10001;
+  display: none;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  pointer-events: none;
+  /* Scrim: only paints where the container actually extends, so short
+     replies get a short scrim. Padded + negative-margined so the fade
+     reaches a bit beyond the text on every side. */
+  padding: 40px 4% 8px;
+  margin: 0 -4%;
+  background: linear-gradient(
+    to top,
+    var(--aria-navy) 0%,
+    rgba(6, 13, 33, 0.86) 45%,
+    rgba(6, 13, 33, 0.0) 100%
+  );
+}
+#voice-satellite-ui .vs-chat-container.visible {
+  display: flex;
+  pointer-events: auto;
+}
+
+/* Centered announcement (voice_satellite.show) — a pinned message, no
+   preceding question, so center it rather than bottom-anchor. */
+#voice-satellite-ui .vs-chat-container.announcement-mode {
+  left: 50% !important;
+  right: auto !important;
+  bottom: auto !important;
+  top: 68% !important;
+  width: 84%;
+  align-items: center;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  background: none;
+  margin: 0;
+  padding: 0;
+}
+
+#voice-satellite-ui .vs-chat-msg {
+  max-width: 92%;
+  opacity: 0;
+  animation: aria-fade-in 0.3s ease forwards;
+  word-wrap: break-word;
+  white-space: pre-line;
+  line-height: 1.35;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.55);
+}
+
+/* The user's question — dimmer, smaller, sits above ARIA's reply. */
+#voice-satellite-ui .vs-chat-msg.user {
+  font-size: calc(30px * var(--vs-text-scale, 1));
+  color: var(--aria-dim);
+  font-weight: 600;
+  align-self: flex-start;
+  text-align: left;
+}
+
+/* ARIA's reply — the thing to read, brightest + largest, scrolls if long. */
+#voice-satellite-ui .vs-chat-msg.assistant {
+  font-size: calc(36px * var(--vs-text-scale, 1));
+  color: var(--aria-text);
+  font-weight: 700;
+  align-self: flex-start;
+  text-align: left;
+  max-height: 46vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--aria-scroll) transparent;
+}
+#voice-satellite-ui .vs-chat-msg.announcement {
+  font-size: calc(36px * var(--vs-text-scale, 1));
+  color: var(--aria-text);
+  font-weight: 700;
+  text-align: center;
+}
+
+@keyframes aria-fade-in {
+  0%   { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Thinking indicator — three cyan dots in the orb's own colors. */
+#voice-satellite-ui .vs-chat-msg.thinking {
+  font-size: calc(36px * var(--vs-text-scale, 1));
+  color: var(--aria-muted);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+}
+#voice-satellite-ui .vs-thinking-dots {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+#voice-satellite-ui .vs-thinking-dots span {
+  display: inline-block;
+  font-size: calc(38px * var(--vs-text-scale, 1));
+  line-height: 1;
+  color: var(--aria-cyan);
+  animation: aria-dot 1.4s ease-in-out infinite;
+}
+#voice-satellite-ui .vs-thinking-dots span:nth-child(2) { color: #62D6FB; animation-delay: 0.18s; }
+#voice-satellite-ui .vs-thinking-dots span:nth-child(3) { color: #7FFFEE; animation-delay: 0.36s; }
+@keyframes aria-dot {
+  0%, 60%, 100% { transform: translateY(0); }
+  30%           { transform: translateY(-8px); }
+}
+/* Frozen thinking line / tool-call — no bounce, smaller. */
+#voice-satellite-ui .vs-chat-msg.thinking.idle,
+#voice-satellite-ui .vs-chat-msg.tool-call {
+  display: flex;
+  align-items: center;
+}
+#voice-satellite-ui .vs-chat-msg.thinking.idle .vs-thinking-dots span,
+#voice-satellite-ui .vs-chat-msg.tool-call .vs-thinking-dots span {
+  animation: none;
+  transform: none;
+  font-size: calc(22px * var(--vs-text-scale, 1));
+}
+#voice-satellite-ui .vs-thinking-text {
+  margin-left: 8px;
+  font-size: calc(22px * var(--vs-text-scale, 1));
+  color: var(--aria-muted);
+  font-style: italic;
+}
+
+/* ─── Timer pills ───────────────────────────────────────────────────
+   Top-right glass chips, ARIA palette. Live outside #voice-satellite-ui
+   (on document.body), so they can't read the --aria-* vars above --
+   colours are inlined here. */
+.vs-timer-container {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 10001;
+  pointer-events: none;
+  font-family: "Nunito", ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+}
+.vs-timer-pill {
+  position: relative;
+  overflow: hidden;
+  font-size: calc(28px * var(--vs-text-scale, 1));
+  color: #EAF1FF;
+  font-weight: 800;
+  background: rgba(14, 24, 54, 0.92);
+  border: 1px solid rgba(0, 217, 255, 0.18);
+  padding: 14px 18px;
+  border-radius: 18px;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+  animation: aria-fade-in 0.3s ease forwards;
+  pointer-events: auto;
+}
+.vs-timer-progress {
+  position: absolute;
+  top: 0; left: 0;
+  height: 100%;
+  background: rgba(0, 217, 255, 0.16);
+  transition: width 1s linear;
+  pointer-events: none;
+}
+.vs-timer-content { position: relative; display: flex; align-items: center; gap: 8px; }
+.vs-timer-time { font-variant-numeric: tabular-nums; }
+.vs-timer-alert {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: calc(28px * var(--vs-text-scale, 1));
+  color: #EAF1FF;
+  font-weight: 800;
+  background: rgba(14, 24, 54, 0.96);
+  border: 1px solid rgba(0, 217, 255, 0.28);
+  padding: 18px 24px;
+  border-radius: 18px;
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.7);
+  z-index: 10002;
+  animation: aria-alert-pulse 1.5s ease-in-out infinite;
+}
+@keyframes aria-alert-pulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50%      { transform: translate(-50%, -50%) scale(1.04); }
 }
