@@ -47,36 +47,44 @@ jobs:
             echo "new=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # A fresh fork's HEAD already contains upstream's tip as an ancestor
-      # (the ARIA commits sit ON TOP of it), so the check above correctly
-      # says "nothing new to merge" on the very first run -- but that must
-      # not mean "skip cutting a release too". Bootstrap case: OUR tag's
-      # release doesn't exist yet, so build+publish regardless of upstream.
+      # Two independent reasons a release is needed, OR'd together:
+      #   (1) upstream has new commits (checked above) -- the merge step
+      #       below will move HEAD forward, so whatever's currently
+      #       released is about to be stale.
+      #   (2) the release for our tag doesn't match CURRENT (pre-merge)
+      #       HEAD -- covers both "no release yet" (bootstrap) and "someone
+      #       pushed straight to this fork's skin code, independent of
+      #       upstream" (a direct fix here, exactly what happens the first
+      #       time this needed a second look after Jacob hit a real bug).
       #
-      # Deliberately scoped to the exact tag we'd publish (v<version>-aria),
-      # not "does any release exist" -- two earlier, broader attempts both
-      # went wrong: counting ALL releases picked up a release `gh release
-      # list` can see (a draft, most likely -- those are hidden from
-      # unauthenticated reads, which is why checking this from outside the
-      # job never showed one) that has nothing to do with whether THIS
-      # version has been published. Asking the precise question sidesteps
-      # that ambiguity instead of re-litigating why a broader count was 1.
-      - name: Check for an existing release of this version
+      # An earlier version of this check only asked "does a release for our
+      # tag exist by name" -- true forever after the first successful
+      # publish, since a direct push to aria.js/aria.css doesn't change
+      # package.json's version and therefore doesn't change the tag name
+      # either. That silently ate every follow-up fix: the tag existed, so
+      # the whole pipeline skipped, even though HEAD had moved past what
+      # was actually released. Comparing against the release's real target
+      # commit closes that gap for good, not just for this one incident.
+      - name: Check whether the release matches current HEAD
         id: release_check
-        env:
-          GH_TOKEN: ${{ github.token }}
-          # Without this, gh guesses which repo to target from the local
-          # git remotes -- and with BOTH `origin` (this fork) and `upstream`
-          # (jxlarrea's real repo, added above so we can sync) present, it
-          # can resolve against the wrong one. Pin it explicitly instead of
-          # letting it guess; github.repository is always "whichever repo
-          # this workflow is actually running in", never ambiguous.
-          GH_REPO: ${{ github.repository }}
         run: |
-          if gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
+          TAG="${{ steps.version.outputs.tag }}"
+          # Resolve the tag directly via git (actions/checkout's fetch-depth:0
+          # already pulled every tag from this fork), not gh release view's
+          # targetCommitish -- that field documents "where to create the tag
+          # if it doesn't exist yet", which isn't quite our case: our tags
+          # are always pushed BEFORE the release is created against them, so
+          # trusting it here would be relying on behaviour I'm not certain
+          # of. Asking git directly what commit the tag itself points to has
+          # no such ambiguity.
+          RELEASED_SHA=$(git rev-parse "refs/tags/$TAG" 2>/dev/null || echo "")
+          CURRENT_SHA=$(git rev-parse HEAD)
+          echo "released sha: ${RELEASED_SHA:-<no release yet>}"
+          echo "current HEAD: $CURRENT_SHA"
+          if [ -z "$RELEASED_SHA" ] || [ "$RELEASED_SHA" != "$CURRENT_SHA" ]; then
             echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Merge upstream
