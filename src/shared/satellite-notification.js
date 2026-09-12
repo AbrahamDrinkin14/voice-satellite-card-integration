@@ -226,6 +226,33 @@ export function dequeueNotification(mgr) {
 
 
 /**
+ * Whether any notification manager is holding a queued event. Events are
+ * queued on the manager that owns their type, so a flow that ends on one
+ * manager (an ask_question answer, an announcement linger) must look at
+ * its siblings too - an announce that arrived during the question's STT
+ * phase sits on the announcement manager, not the ask-question one.
+ * @param {object} card
+ * @returns {boolean}
+ */
+export function hasQueuedNotification(card) {
+  return !!(card.announcement?.queued || card.askQuestion?.queued
+    || card.startConversation?.queued || card.show?.queued);
+}
+
+/**
+ * Drain every manager's queue. Each playQueued is a no-op when nothing is
+ * waiting there, so this is safe to call from any end-of-flow site.
+ * @param {object} card
+ */
+export function playQueuedNotifications(card) {
+  card.announcement?.playQueued();
+  card.askQuestion?.playQueued();
+  card.startConversation?.playQueued();
+  card.show?.playQueued();
+}
+
+
+/**
  * Full playback: blur -> bar -> preannounce -> main media -> onComplete.
  * DOM delegated to UIManager, audio to chime/media-playback.
  *

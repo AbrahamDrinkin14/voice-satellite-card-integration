@@ -10,7 +10,7 @@
 
 import { State, INTERACTING_STATES, BlurReason, Timing } from '../constants.js';
 import { subscribeSatelliteEvents, teardownSatelliteSubscription } from '../shared/satellite-subscription.js';
-import { dispatchSatelliteEvent } from '../shared/satellite-notification.js';
+import { dispatchSatelliteEvent, playQueuedNotifications } from '../shared/satellite-notification.js';
 import { getSwitchState, getSelectState, getNumberState, getSatelliteAttr } from '../shared/satellite-state.js';
 import { setChimeDurationOverrides, getChimeDuration, CHIME_WAKE } from '../audio/chime.js';
 import { setupNativeWakeHandoff, teardownNativeWakeHandoff, nativeEngineFor } from '../wake-word/native-handoff.js';
@@ -631,10 +631,7 @@ export function onTTSComplete(session, playbackFailed) {
     session.screensaver.notifyActivity();
 
     // Play any queued notifications
-    session.announcement.playQueued();
-    session.askQuestion.playQueued();
-    session.startConversation.playQueued();
-    session.show.playQueued();
+    playQueuedNotifications(session);
   };
 
   // Mini-card hook: keep the text visible briefly while a compact marquee is
