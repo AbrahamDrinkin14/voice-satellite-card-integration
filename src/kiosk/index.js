@@ -138,9 +138,13 @@ let _kioskerScreensaverPaused = false;
 
 // Kiosk Satellite exposes both a one-shot stopScreensaver() and a
 // suppress/release pauseScreensaver(paused).  We use the pause model (like
-// Kiosker) so the screensaver stays off for the whole voice interaction,
-// and track it to pair stop/release cleanly.
-let _ksScreensaverPaused = false;
+// Kiosker) so the screensaver stays off for the whole voice interaction.
+// The kiosk keeps one hold per reason ('voice', 'media', 'timer', ...) and
+// releases exactly the reason it is given, so the holds are tracked here
+// per reason too: a single flag let a second reason's stop turn into a
+// no-op and the first reason's release send the wrong name, leaving a
+// hold in the kiosk that nothing on the page would ever clear again.
+const _ksHeldReasons = new Set();
 let _ksMotionHandler = null;
 
 // ── Public API ─────────────────────────────────────────────────────────
@@ -285,7 +289,8 @@ export function stopScreensaver(reason) {
     return ok;
   }
   if (ksPresent()) {
-    if (_ksScreensaverPaused) return true;
+    const key = reason || '';
+    if (_ksHeldReasons.has(key)) return true;
     try {
       // Kiosk Satellite's honest API for this bracket: "an interaction is
       // running" (voice turn, ringing timer, media playback). The kiosk
@@ -293,13 +298,14 @@ export function stopScreensaver(reason) {
       // while it is active, and the reason tells it what kind, so it can
       // log and specialize per cause. pauseScreensaver remains as the
       // fallback for older Kiosk Satellite versions, which route it to the
-      // same signal (without the reason).
+      // same signal (without the reason), so it is paused once for the
+      // first held reason and resumed when the last one goes.
       if (typeof window.kioskSatellite.setInteractionActive === 'function') {
-        window.kioskSatellite.setInteractionActive(true, reason || '');
-      } else {
+        window.kioskSatellite.setInteractionActive(true, key);
+      } else if (_ksHeldReasons.size === 0) {
         window.kioskSatellite.pauseScreensaver(true);
       }
-      _ksScreensaverPaused = true;
+      _ksHeldReasons.add(key);
       return true;
     } catch (_) {
       return false;
@@ -319,14 +325,17 @@ export function releaseScreensaver(reason) {
     if (ok) _kioskerScreensaverPaused = false;
     return ok;
   }
-  if (ksPresent() && _ksScreensaverPaused) {
+  if (ksPresent()) {
+    const key = reason || '';
+    if (!_ksHeldReasons.has(key)) return false;
     try {
       if (typeof window.kioskSatellite.setInteractionActive === 'function') {
-        window.kioskSatellite.setInteractionActive(false, reason || '');
+        window.kioskSatellite.setInteractionActive(false, key);
+        _ksHeldReasons.delete(key);
       } else {
-        window.kioskSatellite.pauseScreensaver(false);
+        _ksHeldReasons.delete(key);
+        if (_ksHeldReasons.size === 0) window.kioskSatellite.pauseScreensaver(false);
       }
-      _ksScreensaverPaused = false;
       return true;
     } catch (_) {
       return false;
