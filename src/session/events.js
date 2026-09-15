@@ -293,6 +293,12 @@ async function _startListeningBody(session) {
       session.logger.log('session', 'Muted - mic and wake word suspended at startup');
       session.showMutedToast();
     }
+    // Kiosk Satellite's intercom holds the mic for a call: no capture until
+    // the call ends, when _setIntercomHold runs this start again.
+    const intercomHeld = session._intercomHold === true;
+    if (intercomHeld && !muted) {
+      session.logger.log('session', 'Intercom call live - the mic stays with the app until it ends');
+    }
 
     // Disabled: don't acquire the mic and don't start the pipeline. The
     // session sits idle waiting for voice_satellite.wake to fire, which
@@ -327,9 +333,10 @@ async function _startListeningBody(session) {
       return;
     }
 
-    if (muted) {
-      // Muted: skip mic acquisition and all inference. Stay idle; the
-      // session is otherwise fully set up below and resumes on unmute.
+    if (muted || intercomHeld) {
+      // Muted, or the app's intercom has the mic: skip mic acquisition and
+      // all inference. Stay idle; the session is otherwise fully set up
+      // below and resumes on unmute or when the call ends.
       setState(session, State.IDLE);
     } else {
       setState(session, State.CONNECTING);
@@ -785,6 +792,10 @@ export async function triggerWake(session, opts = {}) {
   // the on-demand mic the wake service would otherwise bring up.
   if (getSwitchState(session.hass, session.config.satellite_entity, 'mute') === true) {
     session.logger.log('wake', 'Ignored - satellite is muted');
+    return;
+  }
+  if (session._intercomHold === true) {
+    session.logger.log('wake', 'Ignored - an intercom call holds the mic');
     return;
   }
 

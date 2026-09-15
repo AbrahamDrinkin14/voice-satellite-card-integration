@@ -611,6 +611,34 @@ export function unbindNativeStopWord() {
   }
 }
 
+// ── Intercom microphone hold (Kiosk Satellite only) ────────────────────
+//
+// A call on the app's intercom needs the microphone this page may be holding
+// (Home Assistant wake mode streams it around the clock). The app fires
+// `kiosksatellite:intercom-mic` with {hold: true} when it wants it and waits
+// for the page's tracks to stop, then {hold: false} when the call ends.
+
+let _ksIntercomMicHandler = null;
+
+/** Bind a handler for the app's intercom microphone hold: handler(hold). */
+export function bindIntercomMicHold(handler) {
+  if (!ksPresent()) return false;
+  unbindIntercomMicHold();
+  _ksIntercomMicHandler = (e) => {
+    try { handler(e?.detail?.hold === true); } catch (_) { /* ignore */ }
+  };
+  window.addEventListener('kiosksatellite:intercom-mic', _ksIntercomMicHandler);
+  return true;
+}
+
+/** Unbind the intercom microphone hold handler. */
+export function unbindIntercomMicHold() {
+  if (_ksIntercomMicHandler) {
+    window.removeEventListener('kiosksatellite:intercom-mic', _ksIntercomMicHandler);
+    _ksIntercomMicHandler = null;
+  }
+}
+
 // ── Delegated mic (Kiosk Satellite only) ───────────────────────────────
 //
 // The app owns the microphone (it is already capturing for native wake-word
