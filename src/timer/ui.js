@@ -63,7 +63,10 @@ export function tick(mgr) {
   const now = Date.now();
 
   for (const t of mgr.timers) {
-    const elapsed = Math.max(0, Math.floor((now - t.startedAt) / 1000));
+    // While paused, totalSeconds is the remaining duration at the pause.
+    const elapsed = t.isActive === false
+      ? 0
+      : Math.max(0, Math.floor((now - t.startedAt) / 1000));
     const left = Math.max(0, t.totalSeconds - elapsed);
     t.secondsLeft = left;
   }
