@@ -28,6 +28,7 @@ const TIMER_TTS_TO_CHIME_DELAY_MS = 500;
 
 /** @param {import('./index.js').TimerManager} mgr */
 export function removeContainer(mgr) {
+  mgr.nativePills?.sync([]);
   mgr.card.ui.removeTimerContainer();
 }
 
@@ -44,6 +45,10 @@ export function removePill(mgr, timerId) {
 
 /** @param {import('./index.js').TimerManager} mgr */
 export function syncDOM(mgr) {
+  if (mgr.nativePills?.sync(mgr.card.config?.hide_timer_pills ? [] : mgr.timers)) {
+    mgr.card.ui.removeTimerContainer();
+    return;
+  }
   if (mgr.card.config?.hide_timer_pills) {
     // Pills suppressed via the side-panel toggle. Tear down anything that
     // may already be on screen so flipping the flag mid-run hides existing
@@ -77,7 +82,7 @@ export function tick(mgr) {
     mgr.card.ui.removeTimerContainer();
     return;
   }
-  mgr.card.ui.tickTimerPills(mgr.timers);
+  if (!mgr.nativePills?.active) mgr.card.ui.tickTimerPills(mgr.timers);
 }
 
 /**
@@ -85,8 +90,13 @@ export function tick(mgr) {
  * @param {string[]} [names] - Names of timers that just finished, shown as
  *   the alert label.
  */
-export function showAlert(mgr, names) {
+export async function showAlert(mgr, names) {
   if (mgr.alertActive) {
+    if (mgr.nativePills?.api) {
+      const all = new Map([...mgr.nativePills.alertTimers, ...(mgr._lastFinishedTimers || [])]
+        .map((timer) => [timer.id, timer]));
+      await mgr.nativePills.showAlert([...all.values()], timersMuted(mgr));
+    }
     mgr.log.log('timer', 'Alert already active, skipping duplicate');
     return;
   }
@@ -111,6 +121,11 @@ export function showAlert(mgr, names) {
   // stop word is disabled) on its own.
   mgr.card.wakeWord?.enableStopModel(false);
 
+  const finished = mgr._lastFinishedTimers?.length
+    ? mgr._lastFinishedTimers : [{ id: 'timer-alert', name: names?.join(', ') || '' }];
+  if (await mgr.nativePills?.showAlert(finished, timersMuted(mgr))) return;
+  if (!mgr.alertActive) return;
+
   mgr.card.ui.showBlurOverlay(BlurReason.TIMER);
 
   const labelNames = mgr.card.config?.hide_timer_name_on_alert ? [] : names;
@@ -125,6 +140,7 @@ export function showAlert(mgr, names) {
 
 /** @param {import('./index.js').TimerManager} mgr */
 export function clearAlert(mgr) {
+  mgr.nativePills?.clearAlert();
   if (!mgr.alertActive) return;
   mgr.alertActive = false;
 
@@ -161,6 +177,7 @@ export function clearAlert(mgr) {
  * @param {import('./index.js').TimerManager} mgr
  */
 function timersMuted(mgr) {
+  if (typeof mgr._attrs?.mute_timers === 'boolean') return mgr._attrs.mute_timers;
   return getSwitchState(
     mgr.card.hass, mgr.card.config?.satellite_entity, 'mute_timers',
   ) === true;

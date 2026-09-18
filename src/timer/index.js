@@ -13,6 +13,7 @@
  * 4. Alert dismissed by double-tap or stop word
  */
 
+import { NativeTimerPills } from './native-pills.js';
 import { subscribeToEntity, unsubscribeEntity } from '../shared/entity-subscription.js';
 import { processStateChange, resetTimerDedup } from './events.js';
 import { sendCancelTimer } from './comms.js';
@@ -44,6 +45,7 @@ export class TimerManager {
     this._alertActive = false;
     this._alertEl = null;
     this._lastFinishedTimers = [];
+    this.nativePills = new NativeTimerPills(this);
   }
   update() {
     if (this._subscribed) return;
@@ -73,6 +75,7 @@ export class TimerManager {
   }
 
   destroy() {
+    this.nativePills.destroy();
     this.stopTick();
     if (this._removeContainerTimeout) {
       clearTimeout(this._removeContainerTimeout);
@@ -128,11 +131,13 @@ export class TimerManager {
         // leave the remaining time unchanged (e.g. add then remove the
         // same amount, or pause/unpause).
         if (
-          existing.totalSeconds !== raw.total_seconds
+          existing.name !== (raw.name || '')
+          || existing.totalSeconds !== raw.total_seconds
           || existing.startedAt !== serverStartedAt
           || existing.isActive !== isActive
         ) {
           existing.totalSeconds = raw.total_seconds;
+          existing.name = raw.name || '';
           existing.startedAt = serverStartedAt;
           existing.isActive = isActive;
           const elapsed = isActive
