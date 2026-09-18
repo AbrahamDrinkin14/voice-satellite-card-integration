@@ -694,6 +694,10 @@ export function handleError(mgr, errorData) {
     try { mgr.card.teardown(); } catch (e) {
       mgr.log.error('error', `teardown failed: ${e?.message || e}`);
     }
+    // Teardown clears the startup guard. Keep automatic bootstrap and late
+    // recovery callbacks stopped until the user explicitly starts again.
+    mgr.card._userStopped = true;
+    mgr.card._startAttempted = true;
     mgr.card.currentState = State.IDLE;
     mgr.card.ui.showStartButton();
     return;

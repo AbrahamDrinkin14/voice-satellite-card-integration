@@ -201,6 +201,7 @@ export function setState(session, newState) {
  * @param {import('./index.js').VoiceSatelliteSession} session
  */
 export async function handleStartClick(session) {
+  session._userStopped = false;
   await session.audio.ensureAudioContextForGesture();
   if (session._hasStarted && getWakeWordMode(session) === WAKE_MODE_DISABLED) {
     await triggerWake(session);
@@ -356,7 +357,8 @@ async function _startListeningBody(session) {
         // so all start paths benefit, not just this one.  No-op here.
         await ww.start();
       } else {
-        await session.pipeline.start();
+        const result = await session.pipeline.start();
+        if (result === 'aborted' || session._userStopped) return 'aborted';
         if (mode === WAKE_MODE_HA && stopWordOn) {
           // Load runtime in standby. Failure here is non-fatal - stop-word
           // interruption simply won't be available, but server-side wake
