@@ -10,7 +10,7 @@
 
 import { State, INTERACTING_STATES, BlurReason, Timing } from '../constants.js';
 import { subscribeSatelliteEvents, teardownSatelliteSubscription } from '../shared/satellite-subscription.js';
-import { dispatchSatelliteEvent, playQueuedNotifications } from '../shared/satellite-notification.js';
+import { dispatchSatelliteEvent, playQueuedNotifications, releaseNotificationInteraction } from '../shared/satellite-notification.js';
 import { getSwitchState, getSelectState, getNumberState, getSatelliteAttr } from '../shared/satellite-state.js';
 import { setChimeDurationOverrides, getChimeDuration, CHIME_WAKE } from '../audio/chime.js';
 import { setupNativeWakeHandoff, teardownNativeWakeHandoff, nativeEngineFor } from '../wake-word/native-handoff.js';
@@ -147,6 +147,7 @@ export function setState(session, newState) {
   } else if (wasInteracting && !session.tts?.isPlaying) {
     session.screensaver.stopExternalKeepalive();
     kiosk.releaseScreensaver('voice');
+    releaseNotificationInteraction(session.startConversation);
   }
 
   // Swap mic DSP config between wake-word and STT modes.  WAKE_WORD_DETECTED
@@ -635,6 +636,7 @@ export function onTTSComplete(session, playbackFailed) {
     // Same for the kiosk companion's screensaver: this is the end-of-turn that
     // the leave-interacting branch deferred while TTS was still speaking.
     kiosk.releaseScreensaver('voice');
+    releaseNotificationInteraction(session.startConversation);
 
     // Reset screensaver idle timer after interaction completes
     session.screensaver.notifyActivity();

@@ -562,7 +562,7 @@ export class PipelineManager {
 
     const stopping = this.stop();
     const gen = this._pipelineGen;
-    stopping.then(() => {
+    return stopping.then(() => {
       if (this._pipelineGen !== gen || !this._canRestart()) return;
       this._isRestarting = false;
       this._continueMode = true;
@@ -583,7 +583,7 @@ export class PipelineManager {
       if (opts.wake_word_slot === 1 || opts.wake_word_slot === 2) {
         startOpts.wake_word_slot = opts.wake_word_slot;
       }
-      this.start(startOpts).catch((e) => {
+      return this.start(startOpts).catch((e) => {
         if (this._pipelineGen !== gen || e?.name === 'MicStartAborted' || !this._canRestart()) return;
         const msg = e?.message || JSON.stringify(e);
         this._log.error('pipeline', `Continue conversation failed: ${msg}`);
