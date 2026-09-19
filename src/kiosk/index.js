@@ -929,14 +929,26 @@ export function prefetchNativeSound(url) {
  */
 export async function playNativeSoundTracked(url, volume, { stream = false, cache = false } = {}) {
   if (!supportsNativeSound()) return null;
+  // A cached clip can start or finish before the bridge returns its id.
+  const early = [];
+  const buffer = (event) => early.push(event);
+  for (const name of ['sound-started', 'sound-ended']) {
+    window.addEventListener(`kiosksatellite:${name}`, buffer);
+  }
+  const unbuffer = () => {
+    for (const name of ['sound-started', 'sound-ended']) {
+      window.removeEventListener(`kiosksatellite:${name}`, buffer);
+    }
+  };
   let res;
   try {
     res = await window.kioskSatellite.playSound(url, { volume, stream, cache });
   } catch (_) {
+    unbuffer();
     return null;
   }
   const id = res && res.id;
-  if (!id) return null;
+  if (!id) { unbuffer(); return null; }
   let startedResolve;
   let doneResolve;
   let levelCb = null;
@@ -961,6 +973,11 @@ export async function playNativeSoundTracked(url, volume, { stream = false, cach
   window.addEventListener('kiosksatellite:sound-started', onStarted);
   window.addEventListener('kiosksatellite:sound-level', onLevel);
   window.addEventListener('kiosksatellite:sound-ended', onEnded);
+  unbuffer();
+  for (const event of early) {
+    if (event.type === 'kiosksatellite:sound-ended') onEnded(event);
+    else onStarted(event);
+  }
   return {
     id,
     started,

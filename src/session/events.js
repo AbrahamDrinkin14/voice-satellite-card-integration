@@ -12,7 +12,7 @@ import { State, INTERACTING_STATES, BlurReason, Timing } from '../constants.js';
 import { subscribeSatelliteEvents, teardownSatelliteSubscription } from '../shared/satellite-subscription.js';
 import { dispatchSatelliteEvent, playQueuedNotifications, releaseNotificationInteraction } from '../shared/satellite-notification.js';
 import { getSwitchState, getSelectState, getNumberState, getSatelliteAttr } from '../shared/satellite-state.js';
-import { setChimeDurationOverrides, getChimeDuration, CHIME_WAKE } from '../audio/chime.js';
+import { setChimeDurationOverrides, refreshNativeChimeDurations, getChimeDuration, CHIME_WAKE } from '../audio/chime.js';
 import { setupNativeWakeHandoff, teardownNativeWakeHandoff, nativeEngineFor } from '../wake-word/native-handoff.js';
 import * as kiosk from '../kiosk/index.js';
 
@@ -270,6 +270,9 @@ async function _startListeningBody(session) {
     // selected engine, without importing native-handoff.js (which imports it).
     session._nativeEngineFor = () => nativeEngineFor(session);
 
+    // Read local sound lengths before the native wake engine can trigger.
+    await refreshNativeChimeDurations();
+    if (session._userStopped) return 'aborted';
     await setupNativeWakeHandoff(session).catch((e) => {
       session.logger.error('wake-word', `Native wake handoff failed: ${e.message || e}`);
     });
@@ -542,7 +545,7 @@ export function performFollowupHandoff(session, onReady, opts = {}) {
     // Mirror the wake-word path: play the chime, then wait its real
     // duration plus the same speaker drain margin so the chime can't
     // bleed into the new STT capture.
-    const chimeMs = getChimeDuration(CHIME_WAKE) * 1000;
+    const chimeMs = getChimeDuration(CHIME_WAKE, session) * 1000;
     const chimeWait = chimeMs + 250;
     session.logger.log(
       'pipeline',

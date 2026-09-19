@@ -161,7 +161,7 @@ export function handleWakeWordEnd(mgr, eventData) {
     // custom chime MP3s into /config/voice_satellite/sounds/), falling
     // back to the declared value if metadata isn't loaded yet.
     const SPEAKER_DRAIN_MS = 250;
-    const resumeDelay = (getChimeDuration(CHIME_WAKE) * 1000) + SPEAKER_DRAIN_MS;
+    const resumeDelay = (getChimeDuration(CHIME_WAKE, mgr.card) * 1000) + SPEAKER_DRAIN_MS;
     setTimeout(() => {
       // Discard audio captured during the chime, then resume sending.
       audio.audioBuffer = [];

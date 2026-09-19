@@ -1,14 +1,14 @@
 /** Timer UI bridge: pills, ticking, and finished-alert lifecycle. */
 
-import { playChime, CHIME_ALERT, getChimeDuration } from '../audio/chime.js';
+import { playChimeTracked, CHIME_ALERT } from '../audio/chime.js';
 import { buildMediaUrl, buildRemoteMediaUrl, playMediaUrl } from '../audio/media-playback.js';
 import { playRemote, stopRemote } from '../tts/comms.js';
 import { getSelectState, getSwitchState } from '../shared/satellite-state.js';
 import { BlurReason, DEFAULT_CONFIG, Timing } from '../constants.js';
 import * as kiosk from '../kiosk/index.js';
 
-let _alertLoopTimer = null;
 let _alertLoopToken = null;
+let _alertSound = null;
 let _timerTtsPromise = null;
 let _timerTtsAudio = null;
 let _timerTtsNative = null;
@@ -184,15 +184,27 @@ function timersMuted(mgr) {
 }
 
 /** @param {import('./index.js').TimerManager} mgr */
-function playAlertChime(mgr) {
+async function playAlertChime(mgr, token) {
   if (timersMuted(mgr)) return;
-
-  // In normal_playback mode, snapshot the remote before the chime fires
-  // (chime.js writes to the remote via play_media with announce=false,
-  // wiping any user music). Idempotent across loop iterations.
   mgr.card.tts?.ensureRemoteSnapshot();
-  playChime(mgr.card, CHIME_ALERT, mgr.log);
+  let sound;
+  try { sound = await playChimeTracked(mgr.card, CHIME_ALERT, mgr.log); }
+  catch (error) {
+    mgr.log.error('timer', `Alert playback failed: ${error?.message || error}`);
+    return;
+  }
+  if (!mgr.alertActive || _alertLoopToken !== token || timersMuted(mgr)) {
+    sound.stop();
+    return;
+  }
+  _alertSound = sound;
+  const muteWatch = setInterval(() => { if (timersMuted(mgr)) sound.stop(); }, 100);
   mgr.log.log('timer', 'Alert chime played');
+  try { await sound.done; }
+  finally {
+    clearInterval(muteWatch);
+    if (_alertSound === sound) _alertSound = null;
+  }
 }
 
 /** @param {import('./index.js').TimerManager} mgr */
@@ -200,17 +212,12 @@ function startAlertLoop(mgr, names) {
   stopAlertLoop();
 
   const ttsText = buildTimerTtsText(mgr, names);
-  if (!ttsText) {
-    playAlertChime(mgr);
-    _alertLoopTimer = setInterval(() => playAlertChime(mgr), Timing.TIMER_CHIME_INTERVAL);
-    return;
-  }
 
   const pipelineId = getTimerAlertPipelineId(mgr, names);
-  _timerTtsPromise = synthesizeTimerTts(mgr, ttsText, pipelineId).catch((e) => {
+  _timerTtsPromise = ttsText ? synthesizeTimerTts(mgr, ttsText, pipelineId).catch((e) => {
     mgr.log.error('timer', `Timer TTS synthesis failed: ${e?.message || e}`);
     return null;
-  });
+  }) : null;
 
   const token = Symbol('timer-alert-loop');
   _alertLoopToken = token;
@@ -218,12 +225,14 @@ function startAlertLoop(mgr, names) {
   const run = async () => {
     if (!mgr.alertActive || _alertLoopToken !== token) return;
 
-    playAlertChime(mgr);
-    await waitWhileAlertActive(mgr, token, Timing.TIMER_CHIME_INTERVAL);
+    const started = Date.now();
+    await playAlertChime(mgr, token);
+    await waitWhileAlertActive(mgr, token, Math.max(250, Timing.TIMER_CHIME_INTERVAL - (Date.now() - started)));
     if (!mgr.alertActive || _alertLoopToken !== token) return;
 
-    playAlertChime(mgr);
-    await waitWhileAlertActive(mgr, token, getChimeDuration(CHIME_ALERT) * 1000 + 250);
+    if (!ttsText) { run(); return; }
+    await playAlertChime(mgr, token);
+    await waitWhileAlertActive(mgr, token, 250);
 
     if (mgr.alertActive && _alertLoopToken === token && _timerTtsPromise) {
       const media = await _timerTtsPromise;
@@ -242,12 +251,8 @@ function startAlertLoop(mgr, names) {
 function stopAlertLoop(mgr) {
   _alertLoopToken = null;
   _timerTtsPromise = null;
-
-  if (_alertLoopTimer) {
-    clearTimeout(_alertLoopTimer);
-    clearInterval(_alertLoopTimer);
-    _alertLoopTimer = null;
-  }
+  _alertSound?.stop();
+  _alertSound = null;
 
   if (_timerTtsAudio) {
     try { _timerTtsAudio.pause(); } catch (_) { /* ignore */ }

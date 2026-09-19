@@ -29,7 +29,7 @@ async function fixture({ realPipeline = false } = {}) {
   const stubs = {
     'src/audio/chime.js': {
       CHIME_ANNOUNCE_URL: 'chime.mp3', CHIME_WAKE: {},
-      getChimeDuration: () => 0, setChimeDurationOverrides: noop,
+      getChimeDuration: () => 0, setChimeDurationOverrides: noop, refreshNativeChimeDurations: async () => {},
     },
     'src/audio/media-playback.js': {
       buildMediaUrl: x => x, buildRemoteMediaUrl: x => x, playMediaUrl: noop,
