@@ -282,10 +282,9 @@ export function playNotification(mgr, ann, onComplete, logPrefix) {
   // make sure we are in front — otherwise the announcement / question plays to
   // a dimmed, backgrounded tablet. Released in clearNotificationUI.
   kiosk.bringToFront();
-  kiosk.stopScreensaver(
-    ann.ask_question ? 'ask_question'
-      : ann.start_conversation ? 'start_conversation' : 'announcement',
-  );
+  mgr._kioskInteractionReason = ann.ask_question ? 'ask_question'
+    : ann.start_conversation ? 'start_conversation' : 'announcement';
+  kiosk.stopScreensaver(mgr._kioskInteractionReason);
 
   // Only center on screen for passive announcements (not ask_question or start_conversation)
   const isPassive = !ann.ask_question && !ann.start_conversation;
@@ -362,7 +361,14 @@ export function clearNotificationUI(mgr) {
 
   // Let the kiosk screensaver arm again now the interaction is over (balances
   // the stopScreensaver in playNotification).
-  kiosk.releaseScreensaver('announcement');
+  releaseNotificationInteraction(mgr);
+}
+
+/** Release only the kiosk interaction started by this notification. */
+export function releaseNotificationInteraction(mgr) {
+  if (!mgr?._kioskInteractionReason) return;
+  kiosk.releaseScreensaver(mgr._kioskInteractionReason);
+  mgr._kioskInteractionReason = null;
 }
 
 
@@ -613,6 +619,7 @@ export function initNotificationState(mgr) {
   mgr._remotePlayback = null;
   mgr._remoteTimeout = null;
   mgr._stopWordTimer = null;
+  mgr._kioskInteractionReason = null;
 }
 
 

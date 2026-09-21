@@ -11,6 +11,7 @@ import {
   dequeueNotification,
   playNotification,
   clearNotificationUI,
+  releaseNotificationInteraction,
   hasQueuedNotification,
   playQueuedNotifications,
 } from '../shared/satellite-notification.js';
@@ -65,6 +66,7 @@ export class AskQuestionManager {
     }
 
     this._card.ui.hideBlurOverlay(BlurReason.ANNOUNCEMENT);
+    releaseNotificationInteraction(this);
     this.playing = false;
   }
 
